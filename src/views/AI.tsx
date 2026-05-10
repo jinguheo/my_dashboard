@@ -1,0 +1,232 @@
+import { useState, useRef, useEffect } from 'react'
+import type { AIMessage, Settings } from '@/types'
+import type { TodoState } from '@/store/useTodos'
+import type { NoteState } from '@/store/useNotes'
+import type { CalendarState } from '@/store/useCalendar'
+import {
+  streamChat,
+  briefingSystem, reviewSystem, strategicSystem,
+  buildBriefingMessage, buildReviewMessage,
+} from '@/services/claude'
+
+type Mode = 'briefing' | 'review' | 'chat'
+
+interface Props {
+  todos: TodoState
+  notes: NoteState
+  calendar: CalendarState
+  settings: Settings
+}
+
+export default function AI({ todos, notes, calendar, settings }: Props) {
+  const [mode, setMode] = useState<Mode>('briefing')
+  const [messages, setMessages] = useState<AIMessage[]>([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  function buildContext(): string {
+    const pending = todos.pending.map(t => `[${t.priority}] ${t.text}`).join('\n')
+    const completed = todos.completedToday.map(t => t.text).join(', ')
+    const recentNotes = notes.notes.slice(0, 3).map(n => `- ${n.title}: ${n.content.slice(0, 100)}`).join('\n')
+    const events = calendar.upcoming(7).map(e => `${e.date} ${e.title}`).join(', ')
+    return `[사용자 현황]\n미완료:\n${pending || '없음'}\n완료(오늘): ${completed || '없음'}\n일정: ${events || '없음'}\n노트:\n${recentNotes || '없음'}`
+  }
+
+  function getSystem(): string {
+    const ctx = buildContext()
+    if (mode === 'briefing') return `${briefingSystem(settings.userName)}\n\n${ctx}`
+    if (mode === 'review') return `${reviewSystem(settings.userName)}\n\n${ctx}`
+    return `${strategicSystem(settings.userName)}\n\n${ctx}`
+  }
+
+  async function handleGenerate() {
+    if (!settings.anthropicApiKey) return
+    setLoading(true)
+
+    let userMsg = ''
+    if (mode === 'briefing') {
+      userMsg = buildBriefingMessage({
+        pending: todos.pending.map(t => t.text),
+        highPriority: todos.highPriority.map(t => t.text),
+        completedToday: todos.completedToday.map(t => t.text),
+        upcomingEvents: calendar.upcoming(7).map(e => `${e.date} ${e.title}`),
+        recentNotes: notes.notes.slice(0, 3).map(n => n.title),
+      })
+    } else {
+      userMsg = buildReviewMessage({
+        completedToday: todos.completedToday.map(t => t.text),
+        pending: todos.pending.map(t => t.text),
+        recentNotes: notes.notes.slice(0, 3).map(n => n.title),
+      })
+    }
+
+    const userMessage: AIMessage = { role: 'user', content: userMsg, timestamp: new Date().toISOString() }
+    const assistantMessage: AIMessage = { role: 'assistant', content: '', timestamp: new Date().toISOString() }
+    setMessages(p => [...p, userMessage, assistantMessage])
+
+    const idx = messages.length + 1
+    await streamChat(
+      settings.anthropicApiKey,
+      [{ role: 'user', content: userMsg }],
+      getSystem(),
+      (delta) => {
+        setMessages(p => p.map((m, i) => i === idx ? { ...m, content: m.content + delta } : m))
+      }
+    )
+    setLoading(false)
+  }
+
+  async function handleSend() {
+    if (!input.trim() || !settings.anthropicApiKey || loading) return
+    const userContent = input.trim()
+    setInput('')
+    setLoading(true)
+
+    const userMsg: AIMessage = { role: 'user', content: userContent, timestamp: new Date().toISOString() }
+    const assistantMsg: AIMessage = { role: 'assistant', content: '', timestamp: new Date().toISOString() }
+    const newMessages = [...messages, userMsg, assistantMsg]
+    setMessages(newMessages)
+
+    const history = newMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
+    const lastIdx = newMessages.length - 1
+
+    await streamChat(
+      settings.anthropicApiKey,
+      history as Array<{ role: 'user' | 'assistant'; content: string }>,
+      getSystem(),
+      (delta) => {
+        setMessages(p => p.map((m, i) => i === lastIdx ? { ...m, content: m.content + delta } : m))
+      }
+    )
+    setLoading(false)
+  }
+
+  const noKey = !settings.anthropicApiKey
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Mode Tabs */}
+      <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2">
+        <h1 className="text-sm font-bold text-white mr-3">✦ AI 어시스턴트</h1>
+        {([['briefing', '🌅 아침 브리핑'], ['review', '📊 하루 리뷰'], ['chat', '💬 전략 대화']] as const).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => { setMode(m); setMessages([]) }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              mode === m ? 'bg-accent text-white' : 'bg-surface text-gray-400 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        {messages.length > 0 && (
+          <button onClick={() => setMessages([])} className="ml-auto text-xs text-gray-600 hover:text-gray-400">
+            대화 지우기
+          </button>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
+        {noKey && (
+          <div className="text-center py-8">
+            <p className="text-4xl mb-3">🔑</p>
+            <p className="text-gray-400 text-sm">설정에서 Anthropic API 키를 입력하면 AI 기능을 사용할 수 있습니다.</p>
+          </div>
+        )}
+
+        {!noKey && messages.length === 0 && mode !== 'chat' && (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <span className="text-5xl">{mode === 'briefing' ? '🌅' : '📊'}</span>
+            <p className="text-gray-400 text-sm text-center">
+              {mode === 'briefing'
+                ? `${settings.userName}님의 할 일, 일정, 노트를 분석해 오늘의 브리핑을 생성합니다.`
+                : `오늘 하루를 돌아보는 리뷰를 생성합니다.`
+              }
+            </p>
+            <button
+              onClick={handleGenerate}
+              disabled={loading}
+              className="px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl transition-colors disabled:opacity-50"
+            >
+              {loading ? '생성 중...' : mode === 'briefing' ? '브리핑 생성하기' : '리뷰 생성하기'}
+            </button>
+          </div>
+        )}
+
+        {!noKey && messages.length === 0 && mode === 'chat' && (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <span className="text-5xl">💬</span>
+            <p className="text-gray-400 text-sm text-center">
+              현재 할 일·노트·일정을 컨텍스트로 전략적 대화를 나눠보세요.
+            </p>
+            <div className="flex flex-col gap-2 w-full max-w-sm">
+              {['오늘 우선순위를 어떻게 정해야 할까요?', '이번 주 목표를 달성하려면?', '집중력을 높이는 방법은?'].map(q => (
+                <button
+                  key={q}
+                  onClick={() => { setInput(q) }}
+                  className="text-left text-xs px-4 py-2.5 bg-surface hover:bg-surface-hover rounded-lg text-gray-300 transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            {msg.role === 'assistant' && (
+              <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-sm shrink-0 mt-0.5">✦</div>
+            )}
+            <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+              msg.role === 'user'
+                ? 'bg-accent text-white rounded-tr-sm'
+                : 'bg-surface text-gray-200 rounded-tl-sm'
+            }`}>
+              {msg.content || (loading && i === messages.length - 1 ? (
+                <span className="inline-flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+              ) : '')}
+            </div>
+            {msg.role === 'user' && (
+              <div className="w-7 h-7 rounded-full bg-surface-card flex items-center justify-center text-xs shrink-0 mt-0.5">나</div>
+            )}
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      {!noKey && mode === 'chat' && (
+        <div className="px-6 py-4 border-t border-surface-border">
+          <div className="flex gap-3">
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+              placeholder="메시지를 입력하세요... (Enter로 전송)"
+              disabled={loading}
+              className="flex-1 bg-surface rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              className="px-4 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl transition-colors disabled:opacity-50"
+            >
+              전송
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
