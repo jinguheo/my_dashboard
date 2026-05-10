@@ -7,6 +7,7 @@ export default function TodoCard() {
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
+      if (!input.trim()) return
       add(input)
       setInput('')
     }

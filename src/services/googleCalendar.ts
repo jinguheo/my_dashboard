@@ -1,3 +1,6 @@
+import { callMcpTool } from '@/services/mcp'
+import type { ConnectionAuth } from '@/types'
+
 export interface GCalEvent {
   id: string
   summary: string
@@ -14,24 +17,34 @@ const TOKEN_KEY  = 'gcal-token'
 const EXPIRY_KEY = 'gcal-token-expiry'
 const API = 'https://www.googleapis.com/calendar/v3'
 
-export function getCalendarToken(): string | null {
-  const expiry = localStorage.getItem(EXPIRY_KEY)
+function tokenKey(accountId?: string) {
+  return accountId ? `${TOKEN_KEY}:${accountId}` : TOKEN_KEY
+}
+
+function expiryKey(accountId?: string) {
+  return accountId ? `${EXPIRY_KEY}:${accountId}` : EXPIRY_KEY
+}
+
+export function getCalendarToken(accountId?: string): string | null {
+  const tKey = tokenKey(accountId)
+  const eKey = expiryKey(accountId)
+  const expiry = localStorage.getItem(eKey)
   if (expiry && Date.now() > parseInt(expiry)) {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(EXPIRY_KEY)
+    localStorage.removeItem(tKey)
+    localStorage.removeItem(eKey)
     return null
   }
-  return localStorage.getItem(TOKEN_KEY)
+  return localStorage.getItem(tKey)
 }
 
-export function storeCalendarToken(token: string, expiresIn: number) {
-  localStorage.setItem(TOKEN_KEY, token)
-  localStorage.setItem(EXPIRY_KEY, String(Date.now() + (expiresIn - 60) * 1000))
+export function storeCalendarToken(token: string, expiresIn: number, accountId?: string) {
+  localStorage.setItem(tokenKey(accountId), token)
+  localStorage.setItem(expiryKey(accountId), String(Date.now() + (expiresIn - 60) * 1000))
 }
 
-export function clearCalendarToken() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(EXPIRY_KEY)
+export function clearCalendarToken(accountId?: string) {
+  localStorage.removeItem(tokenKey(accountId))
+  localStorage.removeItem(expiryKey(accountId))
 }
 
 export function requestCalendarToken(
@@ -52,13 +65,13 @@ export function requestCalendarToken(
       else onSuccess(res.access_token, parseInt(res.expires_in))
     },
   })
-  client.requestAccessToken({ prompt: '' })
+  client.requestAccessToken({ prompt: 'consent select_account' })
 }
 
-export function revokeCalendarToken(token: string) {
+export function revokeCalendarToken(token: string, accountId?: string) {
   const w = window as any
   w.google?.accounts?.oauth2?.revoke(token, () => {})
-  clearCalendarToken()
+  clearCalendarToken(accountId)
 }
 
 function parseEventDate(e: any): { start: string; isAllDay: boolean } {
@@ -67,7 +80,7 @@ function parseEventDate(e: any): { start: string; isAllDay: boolean } {
   return { start: '', isAllDay: false }
 }
 
-export async function fetchGCalEvents(token: string, days = 30): Promise<GCalEvent[]> {
+export async function fetchGCalEvents(token: string, days = 30, accountId?: string): Promise<GCalEvent[]> {
   const now = new Date()
   const future = new Date(now.getTime() + days * 86400000)
   const params = new URLSearchParams({
@@ -81,7 +94,7 @@ export async function fetchGCalEvents(token: string, days = 30): Promise<GCalEve
   const res = await fetch(`${API}/calendars/primary/events?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (res.status === 401) { clearCalendarToken(); throw new Error('TOKEN_EXPIRED') }
+  if (res.status === 401) { clearCalendarToken(accountId); throw new Error('TOKEN_EXPIRED') }
   if (!res.ok) throw new Error('Google Calendar 로드 실패')
 
   const data = await res.json()
@@ -122,4 +135,16 @@ const GCAL_COLORS: Record<string, string> = {
 }
 export function gcalColor(colorId?: string): string {
   return colorId ? (GCAL_COLORS[colorId] || '#7c3aed') : '#4285F4'
+}
+
+export async function fetchGCalEventsFromMcp(
+  endpoint: string,
+  tool = 'calendar.events',
+  days = 60,
+  auth?: ConnectionAuth,
+  extraArgs: Record<string, unknown> = {},
+): Promise<GCalEvent[]> {
+  const result = await callMcpTool<GCalEvent[] | { events?: GCalEvent[] }>(endpoint, tool, { ...extraArgs, days }, auth)
+  if (Array.isArray(result)) return result
+  return result.events || []
 }

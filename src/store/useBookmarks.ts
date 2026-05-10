@@ -8,8 +8,12 @@ export interface Bookmark {
 }
 
 const defaults: Bookmark[] = [
+  { id: '0', url: 'https://www.youtube.com', title: 'YouTube', favicon: 'https://www.youtube.com/favicon.ico' },
   { id: '1', url: 'https://github.com', title: 'GitHub', favicon: 'https://github.com/favicon.ico' },
   { id: '2', url: 'https://www.google.com', title: 'Google', favicon: 'https://www.google.com/favicon.ico' },
+  { id: '3', url: 'https://mail.google.com', title: 'Gmail', favicon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico' },
+  { id: '4', url: 'https://drive.google.com', title: 'Drive', favicon: 'https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png' },
+  { id: '5', url: 'https://calendar.google.com', title: 'Calendar', favicon: 'https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_31.ico' },
 ]
 
 export function useBookmarks() {

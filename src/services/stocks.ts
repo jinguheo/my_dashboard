@@ -35,6 +35,27 @@ export async function fetchWatchlist(symbols: string[], token: string): Promise<
     .map(r => r.value)
 }
 
+export async function fetchWatchlistFromMcp(endpoint: string, symbols: string[]): Promise<StockQuote[]> {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/call',
+      params: {
+        name: 'stocks.watchlist',
+        arguments: { symbols },
+      },
+    }),
+  })
+  if (!res.ok) throw new Error('MCP stock bridge request failed')
+  const data = await res.json()
+  const quotes = data?.result?.content?.[0]?.json ?? data?.result?.quotes ?? data?.quotes ?? data?.result
+  if (!Array.isArray(quotes)) throw new Error('MCP response did not include quotes')
+  return quotes as StockQuote[]
+}
+
 export function fmtPrice(q: StockQuote): string {
   return q.isKRW
     ? q.price.toLocaleString('ko-KR') + '원'

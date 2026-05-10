@@ -40,14 +40,17 @@ export function useTodos() {
   }
 
   const todayStr = new Date().toDateString()
+  const completed = todos.filter(t => t.done)
   return {
     todos,
     pending: todos.filter(t => !t.done),
-    completed: todos.filter(t => t.done),
+    completed,
     completedToday: todos.filter(t =>
       t.done && t.completedAt && new Date(t.completedAt).toDateString() === todayStr
     ),
     highPriority: todos.filter(t => !t.done && t.priority === 'high'),
+    doneCount: completed.length,
+    total: todos.length,
     add, toggle, remove, update,
   }
 }

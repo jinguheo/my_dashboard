@@ -15,7 +15,7 @@ export default function NotesCard() {
           {showList ? '◀ 닫기' : `📋 ${notes.length}개`}
         </button>
         <button
-          onClick={create}
+          onClick={() => create()}
           className="ml-auto text-xs bg-accent hover:bg-accent-hover text-white px-2 py-1 rounded-md transition-colors"
         >
           + 새 노트
@@ -65,7 +65,7 @@ export default function NotesCard() {
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center">
-          <button onClick={create} className="text-gray-500 hover:text-gray-300 text-sm transition-colors">
+          <button onClick={() => create()} className="text-gray-500 hover:text-gray-300 text-sm transition-colors">
             + 첫 번째 노트 만들기
           </button>
         </div>

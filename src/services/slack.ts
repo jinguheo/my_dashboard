@@ -1,3 +1,6 @@
+import { callMcpTool } from '@/services/mcp'
+import type { ConnectionAuth } from '@/types'
+
 export interface SlackChannel {
   id: string
   name: string
@@ -61,4 +64,32 @@ export function formatSlackTs(ts: string): string {
   if (d.toDateString() === today.toDateString())
     return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
   return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
+}
+
+export async function fetchChatChannelsFromMcp(
+  endpoint: string,
+  tool = 'chat.channels',
+  auth?: ConnectionAuth,
+  extraArgs: Record<string, unknown> = {},
+): Promise<SlackChannel[]> {
+  const result = await callMcpTool<SlackChannel[] | { channels?: SlackChannel[] }>(endpoint, tool, extraArgs, auth)
+  if (Array.isArray(result)) return result
+  return result.channels || []
+}
+
+export async function fetchChatMessagesFromMcp(
+  endpoint: string,
+  tool = 'chat.messages',
+  channelId?: string,
+  auth?: ConnectionAuth,
+  extraArgs: Record<string, unknown> = {},
+): Promise<SlackMessage[]> {
+  const result = await callMcpTool<SlackMessage[] | { messages?: SlackMessage[] }>(
+    endpoint,
+    tool,
+    { ...extraArgs, channelId },
+    auth,
+  )
+  if (Array.isArray(result)) return result
+  return result.messages || []
 }

@@ -2,6 +2,9 @@ declare global {
   interface Window { google: any }
 }
 
+import { callMcpTool } from '@/services/mcp'
+import type { ConnectionAuth } from '@/types'
+
 export interface EmailMessage {
   id: string
   threadId: string
@@ -16,6 +19,14 @@ export interface EmailMessage {
 const TOKEN_KEY = 'gmail-token'
 const TOKEN_EXPIRY_KEY = 'gmail-token-expiry'
 const API = 'https://gmail.googleapis.com/gmail/v1'
+
+function tokenKey(accountId?: string) {
+  return accountId ? `${TOKEN_KEY}:${accountId}` : TOKEN_KEY
+}
+
+function expiryKey(accountId?: string) {
+  return accountId ? `${TOKEN_EXPIRY_KEY}:${accountId}` : TOKEN_EXPIRY_KEY
+}
 
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -33,24 +44,26 @@ export async function loadGoogleAuth(): Promise<void> {
   await new Promise(r => setTimeout(r, 800))
 }
 
-export function getStoredToken(): string | null {
-  const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY)
+export function getStoredToken(accountId?: string): string | null {
+  const tKey = tokenKey(accountId)
+  const eKey = expiryKey(accountId)
+  const expiry = localStorage.getItem(eKey)
   if (expiry && Date.now() > parseInt(expiry)) {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(TOKEN_EXPIRY_KEY)
+    localStorage.removeItem(tKey)
+    localStorage.removeItem(eKey)
     return null
   }
-  return localStorage.getItem(TOKEN_KEY)
+  return localStorage.getItem(tKey)
 }
 
-export function storeToken(token: string, expiresIn: number) {
-  localStorage.setItem(TOKEN_KEY, token)
-  localStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + (expiresIn - 60) * 1000))
+export function storeToken(token: string, expiresIn: number, accountId?: string) {
+  localStorage.setItem(tokenKey(accountId), token)
+  localStorage.setItem(expiryKey(accountId), String(Date.now() + (expiresIn - 60) * 1000))
 }
 
-export function clearGmailToken() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(TOKEN_EXPIRY_KEY)
+export function clearGmailToken(accountId?: string) {
+  localStorage.removeItem(tokenKey(accountId))
+  localStorage.removeItem(expiryKey(accountId))
 }
 
 export function requestGmailToken(
@@ -70,12 +83,12 @@ export function requestGmailToken(
       else onSuccess(res.access_token, parseInt(res.expires_in))
     },
   })
-  client.requestAccessToken({ prompt: '' })
+  client.requestAccessToken({ prompt: 'consent select_account' })
 }
 
-export function revokeGmailToken(token: string) {
+export function revokeGmailToken(token: string, accountId?: string) {
   window.google?.accounts?.oauth2?.revoke(token, () => {})
-  clearGmailToken()
+  clearGmailToken(accountId)
 }
 
 function header(hdrs: any[], name: string) {
@@ -96,14 +109,14 @@ function fmtDate(internalDate: string): string {
   return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
 }
 
-export async function fetchInbox(token: string, maxResults = 25): Promise<EmailMessage[]> {
+export async function fetchInbox(token: string, maxResults = 25, accountId?: string): Promise<EmailMessage[]> {
   const hdrs = { Authorization: `Bearer ${token}` }
 
   const listRes = await fetch(
     `${API}/users/me/messages?maxResults=${maxResults}&labelIds=INBOX`,
     { headers: hdrs },
   )
-  if (listRes.status === 401) { clearGmailToken(); throw new Error('TOKEN_EXPIRED') }
+  if (listRes.status === 401) { clearGmailToken(accountId); throw new Error('TOKEN_EXPIRED') }
   if (!listRes.ok) throw new Error('받은편지함 로드 실패')
 
   const { messages = [] } = await listRes.json()
@@ -129,4 +142,21 @@ export async function fetchInbox(token: string, maxResults = 25): Promise<EmailM
       } as EmailMessage
     }),
   )
+}
+
+export async function fetchInboxFromMcp(
+  endpoint: string,
+  tool = 'mail.inbox',
+  maxResults = 25,
+  auth?: ConnectionAuth,
+  extraArgs: Record<string, unknown> = {},
+): Promise<EmailMessage[]> {
+  const result = await callMcpTool<EmailMessage[] | { messages?: EmailMessage[]; emails?: EmailMessage[] }>(
+    endpoint,
+    tool,
+    { ...extraArgs, maxResults },
+    auth,
+  )
+  if (Array.isArray(result)) return result
+  return result.messages || result.emails || []
 }

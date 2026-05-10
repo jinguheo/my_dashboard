@@ -7,6 +7,7 @@ export function useNotes() {
   const [notes, setNotes] = useState<Note[]>(() => {
     try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch { return [] }
   })
+  const [activeId, setActiveId] = useState<string | null>(() => notes[0]?.id ?? null)
 
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify(notes))
@@ -16,6 +17,7 @@ export function useNotes() {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     setNotes(p => [{ id, title, content: '', tags: [], createdAt: now, updatedAt: now }, ...p])
+    setActiveId(id)
     return id
   }
 
@@ -27,9 +29,16 @@ export function useNotes() {
 
   function remove(id: string) {
     setNotes(p => p.filter(n => n.id !== id))
+    setActiveId(current => {
+      if (current !== id) return current
+      const remaining = notes.filter(n => n.id !== id)
+      return remaining[0]?.id ?? null
+    })
   }
 
-  return { notes, create, update, remove }
+  const activeNote = notes.find(n => n.id === activeId) ?? notes[0] ?? null
+
+  return { notes, activeId: activeNote?.id ?? null, activeNote, setActiveId, create, update, remove }
 }
 
 export type NoteState = ReturnType<typeof useNotes>
