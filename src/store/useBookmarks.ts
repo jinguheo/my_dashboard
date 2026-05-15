@@ -33,7 +33,7 @@ export function useBookmarks() {
     const clean = url.startsWith('http') ? url : `https://${url}`
     const host = new URL(clean).hostname
     const bm: Bookmark = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       url: clean,
       title: title || host,
       favicon: `https://www.google.com/s2/favicons?domain=${host}&sz=32`,

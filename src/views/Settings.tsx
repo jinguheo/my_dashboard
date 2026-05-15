@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CalendarAccount, ChatConnection, ConnectionAuth, ConnectionAuthMode, MailAccount, Settings } from '@/types'
+import { listMcpTools } from '@/services/mcp'
 
 interface Props {
   settings: Settings
@@ -161,6 +162,15 @@ export default function SettingsView({ settings, onSave }: Props) {
               ))}
             </div>
             <Field label="MCP 엔드포인트" value={form.mcpEndpoint} onChange={v => setField('mcpEndpoint', v)} placeholder="http://127.0.0.1:8765/mcp" />
+            <McpQuickSetupBar
+              endpoint={form.mcpEndpoint}
+              onSetup={(mail, cal, chat) => setForm(p => ({
+                ...p,
+                mailAccounts: mergeById(p.mailAccounts, mail),
+                calendarAccounts: mergeById(p.calendarAccounts, cal),
+                chatConnections: mergeById(p.chatConnections, chat),
+              }))}
+            />
           </Section>
 
           <Section title="API 키">
@@ -190,7 +200,8 @@ export default function SettingsView({ settings, onSave }: Props) {
                 {account.provider === 'mcp' ? (
                   <>
                     <Field label="MCP 엔드포인트" value={account.mcpEndpoint || ''} onChange={v => updateMail(account.id, { mcpEndpoint: v })} placeholder="http://127.0.0.1:8765/mcp" />
-                    <Field label="받은편지함 Tool" value={account.inboxTool || 'mail.inbox'} onChange={v => updateMail(account.id, { inboxTool: v })} />
+                    <McpTestButton endpoint={account.mcpEndpoint || ''} auth={account.auth} />
+                    <McpToolField label="받은편지함 Tool" endpoint={account.mcpEndpoint || ''} auth={account.auth} value={account.inboxTool || ''} onChange={v => updateMail(account.id, { inboxTool: v })} defaultPlaceholder="mail.inbox" />
                     <AuthFields auth={account.auth} onChange={auth => updateMail(account.id, { auth })} />
                     <ExtraArgsFields value={account.extraArgs} onChange={extraArgs => updateMail(account.id, { extraArgs })} />
                   </>
@@ -221,7 +232,8 @@ export default function SettingsView({ settings, onSave }: Props) {
                 {account.provider === 'mcp' ? (
                   <>
                     <Field label="MCP 엔드포인트" value={account.mcpEndpoint || ''} onChange={v => updateCalendar(account.id, { mcpEndpoint: v })} placeholder="http://127.0.0.1:8765/mcp" />
-                    <Field label="일정 Tool" value={account.eventsTool || 'calendar.events'} onChange={v => updateCalendar(account.id, { eventsTool: v })} />
+                    <McpTestButton endpoint={account.mcpEndpoint || ''} auth={account.auth} />
+                    <McpToolField label="일정 Tool" endpoint={account.mcpEndpoint || ''} auth={account.auth} value={account.eventsTool || ''} onChange={v => updateCalendar(account.id, { eventsTool: v })} defaultPlaceholder="calendar.events" />
                     <AuthFields auth={account.auth} onChange={auth => updateCalendar(account.id, { auth })} />
                     <ExtraArgsFields value={account.extraArgs} onChange={extraArgs => updateCalendar(account.id, { extraArgs })} />
                   </>
@@ -254,8 +266,9 @@ export default function SettingsView({ settings, onSave }: Props) {
                 {conn.platform === 'mcp' ? (
                   <>
                     <Field label="MCP 엔드포인트" value={conn.mcpEndpoint || ''} onChange={v => updateChat(conn.id, { mcpEndpoint: v })} placeholder="http://127.0.0.1:8765/mcp" />
-                    <Field label="채널 목록 Tool" value={conn.channelsTool || 'chat.channels'} onChange={v => updateChat(conn.id, { channelsTool: v })} />
-                    <Field label="메시지 Tool" value={conn.messagesTool || 'chat.messages'} onChange={v => updateChat(conn.id, { messagesTool: v })} />
+                    <McpTestButton endpoint={conn.mcpEndpoint || ''} auth={conn.auth} />
+                    <McpToolField label="채널 목록 Tool" endpoint={conn.mcpEndpoint || ''} auth={conn.auth} value={conn.channelsTool || ''} onChange={v => updateChat(conn.id, { channelsTool: v })} defaultPlaceholder="chat.channels" />
+                    <McpToolField label="메시지 Tool" endpoint={conn.mcpEndpoint || ''} auth={conn.auth} value={conn.messagesTool || ''} onChange={v => updateChat(conn.id, { messagesTool: v })} defaultPlaceholder="chat.messages" />
                     <Field label="기본 채널 ID" value={conn.channelId || ''} onChange={v => updateChat(conn.id, { channelId: v })} />
                     <AuthFields auth={conn.auth} onChange={auth => updateChat(conn.id, { auth })} />
                     <ExtraArgsFields value={conn.extraArgs} onChange={extraArgs => updateChat(conn.id, { extraArgs })} />
@@ -457,5 +470,164 @@ function ExtraArgsFields({ value, onChange }: {
         {error || 'MCP tool arguments에 병합됩니다.'}
       </span>
     </label>
+  )
+}
+
+function McpTestButton({ endpoint, auth }: { endpoint: string; auth?: ConnectionAuth }) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
+  const [info, setInfo] = useState('')
+
+  async function test() {
+    if (!endpoint) return
+    setStatus('loading')
+    try {
+      const tools = await listMcpTools(endpoint, auth)
+      setStatus('ok')
+      setInfo(`도구 ${tools.length}개`)
+    } catch (e: any) {
+      setStatus('error')
+      setInfo(e.message || '연결 실패')
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={test}
+        disabled={!endpoint || status === 'loading'}
+        className="text-xs px-2.5 py-1 bg-surface hover:bg-surface-hover text-gray-400 rounded-lg border border-surface-border/60 disabled:opacity-40"
+      >
+        {status === 'loading' ? '테스트 중...' : '연결 테스트'}
+      </button>
+      {status === 'ok' && <span className="text-xs text-green-400">✓ {info}</span>}
+      {status === 'error' && <span className="text-xs text-red-400">✗ {info}</span>}
+    </div>
+  )
+}
+
+function McpToolField({ label, endpoint, auth, value, onChange, defaultPlaceholder = '' }: {
+  label: string
+  endpoint: string
+  auth?: ConnectionAuth
+  value: string
+  onChange: (v: string) => void
+  defaultPlaceholder?: string
+}) {
+  const [tools, setTools] = useState<Array<{ name: string; description?: string }>>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function load() {
+    if (!endpoint) return
+    setLoading(true)
+    try {
+      setTools(await listMcpTools(endpoint, auth))
+      setOpen(true)
+    } catch {}
+    setLoading(false)
+  }
+
+  return (
+    <div className="space-y-1.5 relative">
+      <span className="block text-sm font-medium text-gray-300">{label}</span>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={defaultPlaceholder}
+          className="flex-1 bg-surface-card rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50"
+        />
+        <button
+          type="button"
+          onClick={load}
+          disabled={!endpoint || loading}
+          className="px-3 bg-surface hover:bg-surface-hover text-gray-400 text-xs rounded-xl border border-surface-border disabled:opacity-40 shrink-0"
+          title="MCP 서버에서 도구 목록 불러오기"
+        >
+          {loading ? '···' : '목록'}
+        </button>
+      </div>
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-[#12122a] border border-surface-border rounded-xl shadow-2xl max-h-52 overflow-auto">
+          {tools.length === 0
+            ? <p className="px-3 py-2.5 text-xs text-gray-500">도구가 없습니다.</p>
+            : tools.map(t => (
+                <button
+                  key={t.name}
+                  type="button"
+                  onClick={() => { onChange(t.name); setOpen(false) }}
+                  className="w-full text-left px-3 py-2.5 hover:bg-surface/60 flex items-baseline gap-2 text-xs border-b border-surface-border/40 last:border-0"
+                >
+                  <code className="text-accent-light shrink-0">{t.name}</code>
+                  {t.description && <span className="text-gray-500 truncate">{t.description}</span>}
+                </button>
+              ))
+          }
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="w-full px-3 py-2 text-[10px] text-gray-600 hover:text-gray-400 text-right border-t border-surface-border"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function McpQuickSetupBar({ endpoint, onSetup }: {
+  endpoint: string
+  onSetup: (mail: MailAccount[], cal: CalendarAccount[], chat: ChatConnection[]) => void
+}) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [msg, setMsg] = useState('')
+
+  async function run() {
+    if (!endpoint) return
+    setStatus('loading')
+    try {
+      const tools = await listMcpTools(endpoint)
+      const names = tools.map(t => t.name)
+      const inbox = names.find(n => /mail|inbox|email/i.test(n)) ?? 'mail.inbox'
+      const events = names.find(n => /calendar|event|schedule/i.test(n)) ?? 'calendar.events'
+      const chs = names.find(n => /channel/i.test(n)) ?? 'chat.channels'
+      const msgs = names.find(n => /message/i.test(n)) ?? 'chat.messages'
+      onSetup(
+        [{ id: 'mcp-quick-mail', name: 'MCP 메일', provider: 'mcp', mcpEndpoint: endpoint, inboxTool: inbox, auth: { mode: 'none' } }],
+        [{ id: 'mcp-quick-cal', name: 'MCP 캘린더', provider: 'mcp', mcpEndpoint: endpoint, eventsTool: events, auth: { mode: 'none' } }],
+        [{ id: 'mcp-quick-chat', name: 'MCP 채팅', platform: 'mcp', mcpEndpoint: endpoint, channelsTool: chs, messagesTool: msgs, auth: { mode: 'none' } }],
+      )
+      setStatus('done')
+      setMsg(`도구 ${tools.length}개 발견 → 메일·캘린더·채팅 연결 추가됨`)
+    } catch (e: any) {
+      setStatus('error')
+      setMsg(e.message || '연결 실패')
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-3 bg-accent/5 border border-accent/20 rounded-xl">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-accent-light">MCP 빠른 설정</p>
+        <p className="text-[11px] mt-0.5 leading-relaxed">
+          {status === 'done'
+            ? <span className="text-green-400">{msg}</span>
+            : status === 'error'
+              ? <span className="text-red-400">{msg}</span>
+              : <span className="text-gray-500">도구를 탐색해 메일·캘린더·채팅 연결을 자동 생성합니다.</span>}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={run}
+        disabled={!endpoint || status === 'loading'}
+        className="shrink-0 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg disabled:opacity-50"
+      >
+        {status === 'loading' ? '설정 중...' : '자동 설정'}
+      </button>
+    </div>
   )
 }

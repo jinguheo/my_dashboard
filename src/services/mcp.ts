@@ -64,3 +64,23 @@ export async function callMcpTool<T = unknown>(
 
   return (data?.result?.json ?? data?.result?.data ?? data?.result) as T
 }
+
+export async function listMcpTools(
+  endpoint: string,
+  auth?: ConnectionAuth,
+): Promise<Array<{ name: string; description?: string }>> {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(auth) },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/list',
+      params: {},
+    }),
+  })
+  if (!res.ok) throw new Error(`MCP ${res.status}`)
+  const data = await res.json()
+  if (data.error) throw new Error(data.error.message || 'MCP error')
+  return data?.result?.tools ?? []
+}
