@@ -1,5 +1,5 @@
 export type Priority = 'high' | 'medium' | 'low'
-export type View = 'dashboard' | 'todos' | 'notes' | 'calendar' | 'ai' | 'email' | 'chat' | 'settings'
+export type View = 'dashboard' | 'todos' | 'notes' | 'calendar' | 'ai' | 'email' | 'chat' | 'settings' | 'history'
 
 export interface Todo {
   id: string

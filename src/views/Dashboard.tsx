@@ -24,7 +24,7 @@ interface Props {
   onNavigate: (v: View) => void
 }
 
-const PRIORITY_COLOR = { high: 'text-red-400', medium: 'text-yellow-400', low: 'text-blue-400' }
+const PRIORITY_COLOR = { high: 'text-red-500', medium: 'text-amber-500', low: 'text-blue-500' }
 const PRIORITY_LABEL = { high: '높음', medium: '중간', low: '낮음' }
 
 function formatDate() {
@@ -235,17 +235,17 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     <div className="flex-1 overflow-auto p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">안녕하세요, {settings.userName}님</h1>
-          <p className="text-gray-400 text-sm mt-0.5">{formatDate()}</p>
+          <h1 className="text-2xl font-bold text-gray-900">안녕하세요, {settings.userName}님</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{formatDate()}</p>
         </div>
         <div className="flex gap-3 text-sm">
-          <button onClick={() => onNavigate('todos')} className="px-3 py-1.5 bg-surface rounded-lg text-gray-300 hover:text-white hover:bg-surface-hover transition-colors">
+          <button onClick={() => onNavigate('todos')} className="px-3 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-700 hover:bg-surface-hover transition-colors">
             할 일 관리
           </button>
-          <button onClick={() => onNavigate('settings')} className="px-3 py-1.5 bg-surface rounded-lg text-gray-300 hover:text-white hover:bg-surface-hover transition-colors">
+          <button onClick={() => onNavigate('settings')} className="px-3 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-700 hover:bg-surface-hover transition-colors">
             연결 설정
           </button>
-          <button onClick={() => onNavigate('ai')} className="px-3 py-1.5 bg-accent rounded-lg text-white hover:bg-accent-hover transition-colors">
+          <button onClick={() => onNavigate('ai')} className="px-3 py-1.5 bg-gray-900 rounded-lg text-white hover:bg-gray-700 transition-colors">
             AI 브리핑
           </button>
         </div>
@@ -258,29 +258,29 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           label="남은 할 일"
           value={todos.pending.length}
           sub={`오늘 완료 ${todos.completedToday.length}개`}
-          color="text-blue-400"
+          color="text-blue-500"
           onClick={() => onNavigate('todos')}
         />
         <StatCard
           label="높은 우선순위"
           value={todos.highPriority.length}
           sub="먼저 확인할 일"
-          color="text-red-400"
+          color="text-red-500"
           onClick={() => onNavigate('todos')}
         />
         <StatCard
           label="노트"
           value={notes.notes.length}
           sub={notes.notes[0] ? `최근: ${relativeTime(notes.notes[0].updatedAt)}` : '작성한 노트 없음'}
-          color="text-purple-400"
+          color="text-purple-500"
           onClick={() => onNavigate('notes')}
         />
         {weather ? (
-          <div className="bg-surface rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors">
+          <div className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors">
             <div className="text-3xl mb-1">{weatherEmoji(weather.icon)}</div>
-            <div className="text-2xl font-bold text-white">{weather.temp}°C</div>
-            <div className="text-xs text-gray-400 mt-0.5">{weather.city} · {weather.description}</div>
-            <div className="text-xs text-gray-500 mt-1">체감 {weather.feelsLike}°C · 습도 {weather.humidity}%</div>
+            <div className="text-2xl font-bold text-gray-900">{weather.temp}°C</div>
+            <div className="text-xs text-gray-500 mt-0.5">{weather.city} · {weather.description}</div>
+            <div className="text-xs text-gray-400 mt-1">체감 {weather.feelsLike}°C · 습도 {weather.humidity}%</div>
           </div>
         ) : (
           <StatCard
@@ -288,6 +288,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             value="-"
             sub={settings.weatherApiKey ? '로딩 중...' : '설정에서 API 키 입력'}
             color="text-gray-400"
+            setupRequired={!settings.weatherApiKey}
             onClick={() => onNavigate('settings')}
           />
         )}
@@ -302,29 +303,29 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               if (shortcutError) setShortcutError('')
             }}
             placeholder="바로가기 URL 추가: youtube.com, docs.google.com ..."
-            className="flex-1 bg-surface-card rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50"
+            className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
           />
           <button
             type="submit"
             disabled={!shortcutUrl.trim()}
-            className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50"
+            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40"
           >
             추가
           </button>
         </form>
-        {shortcutError && <p className="text-xs text-red-400">{shortcutError}</p>}
+        {shortcutError && <p className="text-xs text-red-500">{shortcutError}</p>}
         <div className="grid grid-cols-5 gap-2">
           {bookmarks.map(link => (
             <div
               key={link.id}
-              className="group relative rounded-xl bg-surface-card text-xs text-gray-300 hover:bg-surface-hover hover:text-white transition-colors"
+              className="group relative rounded-xl bg-surface border border-surface-border text-xs text-gray-700 hover:bg-surface-hover hover:text-gray-900 transition-colors"
             >
               <button
                 onClick={() => openExternalUrl(link.url)}
                 className="flex w-full flex-col items-center gap-2 px-2 py-3"
                 title={link.title}
               >
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 group-hover:bg-white/10">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 group-hover:bg-gray-200">
                   <img
                     src={link.favicon}
                     alt=""
@@ -336,7 +337,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               </button>
               <button
                 onClick={() => removeBookmark(link.id)}
-                className="absolute right-1.5 top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-black/40 text-xs text-gray-400 hover:text-red-300 group-hover:flex"
+                className="absolute right-1.5 top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:text-red-500 group-hover:flex"
                 title="바로가기 삭제"
               >
                 ×
@@ -355,8 +356,8 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               {routine.length > 0 && (
                 <ul className="space-y-2">
                   {routine.slice(0, 6).map((item, idx) => (
-                    <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm text-gray-200">
-                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
+                    <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />
                       <span className="line-clamp-1">{item}</span>
                     </li>
                   ))}
@@ -364,9 +365,9 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               )}
               {todayTodos.length > 0 && (
                 <div className="pt-3 border-t border-surface-border space-y-2">
-                  <p className="text-xs text-gray-500">오늘 마감</p>
+                  <p className="text-xs text-gray-400">오늘 마감</p>
                   {todayTodos.map(t => (
-                    <button key={t.id} onClick={() => todos.toggle(t.id)} className="flex w-full items-center gap-2 text-left text-sm text-gray-200 hover:text-accent">
+                    <button key={t.id} onClick={() => todos.toggle(t.id)} className="flex w-full items-center gap-2 text-left text-sm text-gray-700 hover:text-gray-900">
                       <span className="h-4 w-4 rounded border border-surface-border shrink-0" />
                       <span className="line-clamp-1">{t.text}</span>
                     </button>
@@ -382,37 +383,37 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             <button
               onClick={loadStocksViaApiKey}
               disabled={stocksLoading}
-              className="px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-hover disabled:opacity-50"
+              className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-700 disabled:opacity-50"
             >
               API_KEY로 가져오기
             </button>
             <button
               onClick={loadStocksViaMcp}
               disabled={stocksLoading}
-              className="px-3 py-1.5 rounded-lg bg-surface-card text-gray-200 text-xs font-medium hover:bg-surface-hover disabled:opacity-50"
+              className="px-3 py-1.5 rounded-lg bg-surface border border-surface-border text-gray-700 text-xs font-medium hover:bg-surface-hover disabled:opacity-50"
             >
               MCP로 가져오기
             </button>
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-gray-400">
               {stockSource ? `최근 연결: ${stockSource === 'api-key' ? 'API_KEY' : 'MCP'}` : '관심 종목을 설정하고 가져오세요'}
             </span>
           </div>
-          {stockError && <p className="mb-3 text-xs text-red-400">{stockError}</p>}
+          {stockError && <p className="mb-3 text-xs text-red-500">{stockError}</p>}
           {stocks.length > 0 ? (
             <div className="grid grid-cols-2 gap-2">
               {stocks.slice(0, 6).map(q => (
-                <div key={q.symbol} className="bg-surface-card rounded-lg p-3">
+                <div key={q.symbol} className="bg-surface border border-surface-border rounded-lg p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-white">{displaySymbol(q.symbol)}</span>
-                    <span className={`text-xs ${q.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtChange(q)}</span>
+                    <span className="text-sm font-semibold text-gray-900">{displaySymbol(q.symbol)}</span>
+                    <span className={`text-xs ${q.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmtChange(q)}</span>
                   </div>
-                  <div className="mt-1 text-lg font-bold text-gray-100">{fmtPrice(q)}</div>
-                  <div className="mt-1 text-[10px] text-gray-600">고가 {fmtPrice({ ...q, price: q.high })} · 저가 {fmtPrice({ ...q, price: q.low })}</div>
+                  <div className="mt-1 text-lg font-bold text-gray-800">{fmtPrice(q)}</div>
+                  <div className="mt-1 text-[10px] text-gray-400">고가 {fmtPrice({ ...q, price: q.high })} · 저가 {fmtPrice({ ...q, price: q.low })}</div>
                 </div>
               ))}
             </div>
           ) : (
-            <EmptyText>{stocksLoading ? '주식 정보를 가져오는 중입니다...' : 'Finnhub API 키 또는 MCP 브리지를 연결하면 관심 종목이 표시됩니다.'}</EmptyText>
+            <SetupText>{stocksLoading ? '주식 정보를 가져오는 중입니다...' : 'Finnhub API 키 또는 MCP 브리지를 연결하면 관심 종목이 표시됩니다.'}</SetupText>
           )}
         </Panel>
 
@@ -425,11 +426,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                 <li key={t.id} className="flex items-start gap-2">
                   <button
                     onClick={() => todos.toggle(t.id)}
-                    className="mt-0.5 w-4 h-4 rounded border border-red-400/50 shrink-0 hover:bg-red-400/20 transition-colors"
+                    className="mt-0.5 w-4 h-4 rounded border border-red-300 shrink-0 hover:bg-red-50 transition-colors"
                   />
                   <div className="min-w-0">
-                    <span className="text-sm text-gray-200 line-clamp-1">{t.text}</span>
-                    {t.dueDate && <span className="text-xs text-red-400">마감: {t.dueDate}</span>}
+                    <span className="text-sm text-gray-800 line-clamp-1">{t.text}</span>
+                    {t.dueDate && <span className="text-xs text-red-500">마감: {t.dueDate}</span>}
                   </div>
                 </li>
               ))}
@@ -442,15 +443,17 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             <button
               onClick={generateBriefing}
               disabled={loadingBriefing}
-              className="text-xs px-2 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 transition-colors disabled:opacity-50"
+              className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50"
             >
               {loadingBriefing ? '생성 중...' : '생성'}
             </button>
           </div>
           {briefing ? (
-            <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
+            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{briefing}</p>
           ) : (
-            <EmptyText>{settings.anthropicApiKey ? '생성 버튼을 눌러 오늘의 브리핑을 받아보세요.' : '설정에서 Anthropic API 키를 입력하세요.'}</EmptyText>
+            settings.anthropicApiKey
+              ? <EmptyText>생성 버튼을 눌러 오늘의 브리핑을 받아보세요.</EmptyText>
+              : <SetupText>설정에서 Anthropic API 키를 입력하세요.</SetupText>
           )}
         </Panel>
 
@@ -463,7 +466,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                 <li key={e.id} className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.color }} />
                   <div className="min-w-0">
-                    <p className="text-sm text-gray-200 line-clamp-1">{e.title}</p>
+                    <p className="text-sm text-gray-800 line-clamp-1">{e.title}</p>
                     <p className="text-xs text-gray-500">{e.date}{e.time ? ` ${e.time}` : ''}</p>
                   </div>
                 </li>
@@ -478,10 +481,10 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           ) : (
             <div className="grid grid-cols-2 gap-3">
               {notes.notes.slice(0, 4).map(n => (
-                <div key={n.id} className="bg-surface-card rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer" onClick={() => onNavigate('notes')}>
-                  <p className="text-sm font-medium text-gray-200 line-clamp-1">{n.title}</p>
+                <div key={n.id} className="bg-surface border border-surface-border rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer" onClick={() => onNavigate('notes')}>
+                  <p className="text-sm font-medium text-gray-800 line-clamp-1">{n.title}</p>
                   <p className="text-xs text-gray-500 line-clamp-2 mt-1">{n.content || '(내용 없음)'}</p>
-                  <p className="text-[10px] text-gray-600 mt-2">{relativeTime(n.updatedAt)}</p>
+                  <p className="text-[10px] text-gray-400 mt-2">{relativeTime(n.updatedAt)}</p>
                 </div>
               ))}
             </div>
@@ -496,7 +499,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                 <div key={p} className="flex items-center justify-between">
                   <span className={`text-xs ${PRIORITY_COLOR[p]}`}>{PRIORITY_LABEL[p]}</span>
                   <div className="flex items-center gap-2">
-                    <div className="w-24 h-1.5 bg-surface-border rounded-full overflow-hidden">
+                    <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all"
                         style={{
@@ -505,20 +508,20 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                         }}
                       />
                     </div>
-                    <span className="text-xs text-gray-400 w-4 text-right">{count}</span>
+                    <span className="text-xs text-gray-500 w-4 text-right">{count}</span>
                   </div>
                 </div>
               )
             })}
           </div>
           <div className="pt-2 mt-3 border-t border-surface-border">
-            <div className="flex justify-between text-xs text-gray-400">
+            <div className="flex justify-between text-xs text-gray-500">
               <span>전체 진행률</span>
               <span>{todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}</span>
             </div>
-            <div className="mt-1 w-full h-2 bg-surface-border rounded-full overflow-hidden">
+            <div className="mt-1 w-full h-2 bg-gray-200 rounded-full overflow-hidden">
               <div
-                className="h-full bg-accent rounded-full transition-all"
+                className="h-full bg-gray-800 rounded-full transition-all"
                 style={{ width: todos.todos.length > 0 ? `${(todos.completed.length / todos.todos.length) * 100}%` : '0%' }}
               />
             </div>
@@ -544,17 +547,17 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   )
 }
 
-function StatCard({ label, value, sub, color, onClick }: {
-  label: string; value: number | string; sub: string; color: string; onClick?: () => void
+function StatCard({ label, value, sub, color, onClick, setupRequired = false }: {
+  label: string; value: number | string; sub: string; color: string; onClick?: () => void; setupRequired?: boolean
 }) {
   return (
     <div
       onClick={onClick}
-      className="bg-surface rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
+      className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
     >
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className={`text-3xl font-bold ${color}`}>{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{sub}</p>
+      <p className={`text-xs mt-1 ${setupRequired ? 'text-red-500' : 'text-gray-400'}`}>{sub}</p>
     </div>
   )
 }
@@ -589,14 +592,14 @@ function DashboardAiPanel({
   ]
 
   return (
-    <aside className="sticky top-6 h-[calc(100vh-3rem)] bg-surface border border-surface-border rounded-xl flex flex-col overflow-hidden">
+    <aside className="sticky top-6 h-[calc(100vh-3rem)] bg-white border border-surface-border rounded-xl flex flex-col overflow-hidden">
       <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-white">AI 대화</h2>
-          <p className="text-[11px] text-gray-500 mt-0.5">현재 대시보드 정보를 보고 답변합니다.</p>
+          <h2 className="text-sm font-semibold text-gray-900">AI 대화</h2>
+          <p className="text-[11px] text-gray-400 mt-0.5">현재 대시보드 정보를 보고 답변합니다.</p>
         </div>
         {messages.length > 0 && (
-          <button onClick={onClear} className="text-xs text-gray-600 hover:text-gray-300">
+          <button onClick={onClear} className="text-xs text-gray-400 hover:text-gray-700">
             지우기
           </button>
         )}
@@ -605,14 +608,14 @@ function DashboardAiPanel({
       <div className="flex-1 overflow-auto p-4 space-y-3">
         {!hasApiKey ? (
           <div className="h-full flex flex-col items-center justify-center text-center gap-3">
-            <p className="text-sm text-gray-300">Anthropic API 키가 필요합니다.</p>
-            <button onClick={onNavigateSettings} className="px-3 py-2 rounded-lg bg-accent text-white text-xs hover:bg-accent-hover">
+            <p className="text-sm text-red-500">Anthropic API 키가 필요합니다.</p>
+            <button onClick={onNavigateSettings} className="px-3 py-2 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">
               설정으로 이동
             </button>
           </div>
         ) : messages.length === 0 ? (
           <div className="space-y-3">
-            <p className="text-sm text-gray-400 leading-relaxed">
+            <p className="text-sm text-gray-500 leading-relaxed">
               오른쪽에서 바로 질문하면 할 일, 일정, 노트, 주식 정보를 함께 참고해서 답변합니다.
             </p>
             <div className="space-y-2">
@@ -620,7 +623,7 @@ function DashboardAiPanel({
                 <button
                   key={prompt}
                   onClick={() => onPrompt(prompt)}
-                  className="w-full text-left px-3 py-2.5 rounded-lg bg-surface-card hover:bg-surface-hover text-xs text-gray-300 transition-colors"
+                  className="w-full text-left px-3 py-2.5 rounded-lg bg-surface border border-surface-border hover:bg-surface-hover text-xs text-gray-700 transition-colors"
                 >
                   {prompt}
                 </button>
@@ -632,8 +635,8 @@ function DashboardAiPanel({
             <div key={`${message.timestamp}-${index}`} className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
               <div className={`max-w-[88%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                 message.role === 'user'
-                  ? 'bg-accent text-white rounded-tr-sm'
-                  : 'bg-surface-card text-gray-200 rounded-tl-sm'
+                  ? 'bg-gray-900 text-white rounded-tr-sm'
+                  : 'bg-surface border border-surface-border text-gray-800 rounded-tl-sm'
               }`}>
                 {message.content || (loading && index === messages.length - 1 ? '답변 작성 중...' : '')}
               </div>
@@ -656,12 +659,12 @@ function DashboardAiPanel({
           disabled={!hasApiKey || loading}
           placeholder="질문을 입력하세요..."
           rows={3}
-          className="w-full bg-surface-card rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50 resize-none disabled:opacity-50"
+          className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 resize-none disabled:opacity-50"
         />
         <button
           onClick={onSend}
           disabled={!hasApiKey || loading || !input.trim()}
-          className="mt-2 w-full py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50"
+          className="mt-2 w-full py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40"
         >
           {loading ? '답변 중...' : '질문 보내기'}
         </button>
@@ -678,11 +681,11 @@ function Panel({ title, children, className = '', actionLabel, onAction }: {
   onAction?: () => void
 }) {
   return (
-    <section className={`bg-surface rounded-xl p-4 space-y-3 ${className}`}>
+    <section className={`bg-white border border-surface-border rounded-xl p-4 space-y-3 ${className}`}>
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-white text-sm">{title}</h2>
+        <h2 className="font-semibold text-gray-900 text-sm">{title}</h2>
         {actionLabel && onAction && (
-          <button onClick={onAction} className="text-xs text-gray-500 hover:text-accent">
+          <button onClick={onAction} className="text-xs text-gray-400 hover:text-gray-700">
             {actionLabel}
           </button>
         )}
@@ -693,5 +696,9 @@ function Panel({ title, children, className = '', actionLabel, onAction }: {
 }
 
 function EmptyText({ children }: { children: React.ReactNode }) {
-  return <p className="text-gray-500 text-xs py-4 text-center leading-relaxed">{children}</p>
+  return <p className="text-gray-400 text-xs py-4 text-center leading-relaxed">{children}</p>
+}
+
+function SetupText({ children }: { children: React.ReactNode }) {
+  return <p className="text-red-500 text-xs py-4 text-center leading-relaxed">{children}</p>
 }

@@ -10,6 +10,7 @@ const nav: NavItem[] = [
   { id: 'email',     label: '이메일', icon: '✉' },
   { id: 'chat',      label: '채팅',  icon: '◎' },
   { id: 'ai',        label: 'AI',   icon: '✦' },
+  { id: 'history',   label: '기록',  icon: '◷' },
 ]
 
 interface Props {
@@ -20,9 +21,9 @@ interface Props {
 
 export default function Sidebar({ current, onNavigate, badges = {} }: Props) {
   return (
-    <aside className="w-16 flex flex-col bg-[#0d0d1a] border-r border-surface-border shrink-0">
+    <aside className="w-16 flex flex-col bg-gray-50 border-r border-surface-border shrink-0">
       <div className="h-14 flex items-center justify-center border-b border-surface-border">
-        <span className="text-accent font-bold text-lg select-none">D</span>
+        <span className="text-gray-900 font-bold text-lg select-none">D</span>
       </div>
 
       <nav className="flex-1 flex flex-col gap-1 p-2 pt-3">
@@ -37,8 +38,8 @@ export default function Sidebar({ current, onNavigate, badges = {} }: Props) {
                 relative w-full flex flex-col items-center gap-0.5 py-2.5 rounded-xl
                 text-xs font-medium transition-all duration-150 select-none
                 ${current === id
-                  ? 'bg-accent text-white shadow-lg shadow-accent/30'
-                  : 'text-gray-500 hover:text-gray-200 hover:bg-surface'}
+                  ? 'bg-gray-900 text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}
               `}
             >
               <span className="text-base leading-none">{icon}</span>
@@ -61,8 +62,8 @@ export default function Sidebar({ current, onNavigate, badges = {} }: Props) {
             w-full flex flex-col items-center gap-0.5 py-2.5 rounded-xl
             text-xs font-medium transition-all duration-150 select-none
             ${current === 'settings'
-              ? 'bg-accent text-white shadow-lg shadow-accent/30'
-              : 'text-gray-500 hover:text-gray-200 hover:bg-surface'}
+              ? 'bg-gray-900 text-white shadow-sm'
+              : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}
           `}
         >
           <span className="text-base leading-none">⚙</span>

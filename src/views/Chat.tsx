@@ -31,11 +31,11 @@ export default function Chat({ settings, onNavigate }: Props) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2">
-        <h1 className="text-sm font-bold text-white mr-3">채팅</h1>
+        <h1 className="text-sm font-bold text-gray-900 mr-3">채팅</h1>
         <select
           value={selected?.id || ''}
           onChange={e => setSelectedId(e.target.value)}
-          className="bg-surface text-gray-200 text-xs rounded-lg px-2.5 py-1.5 outline-none border border-surface-border"
+          className="bg-white border border-surface-border text-gray-700 text-xs rounded-lg px-2.5 py-1.5 outline-none"
         >
           {connections.map(conn => (
             <option key={conn.id} value={conn.id}>
@@ -43,7 +43,7 @@ export default function Chat({ settings, onNavigate }: Props) {
             </option>
           ))}
         </select>
-        <button onClick={() => onNavigate('settings')} className="ml-auto text-xs text-gray-500 hover:text-accent">
+        <button onClick={() => onNavigate('settings')} className="ml-auto text-xs text-gray-400 hover:text-gray-700">
           서버 관리
         </button>
       </div>
@@ -108,15 +108,15 @@ function SlackView({ connection, onNavigate }: { connection: ChatConnection; onN
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      <div className="w-48 shrink-0 bg-[#0d0d1a] border-r border-surface-border flex flex-col">
-        <p className="px-3 py-2 text-[10px] text-gray-500 font-semibold uppercase tracking-wider">{connection.name}</p>
+      <div className="w-48 shrink-0 bg-gray-50 border-r border-surface-border flex flex-col">
+        <p className="px-3 py-2 text-[10px] text-gray-400 font-semibold uppercase tracking-wider">{connection.name}</p>
         <div className="flex-1 overflow-auto">
           {channels.map(ch => (
             <button
               key={ch.id}
               onClick={() => setSelectedChannel(ch.id)}
               className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                ch.id === selectedChannel ? 'bg-white/10 text-white font-medium' : 'text-gray-400 hover:text-gray-200 hover:bg-surface'
+                ch.id === selectedChannel ? 'bg-gray-200 text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
               # {ch.name}
@@ -127,24 +127,24 @@ function SlackView({ connection, onNavigate }: { connection: ChatConnection; onN
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="px-4 py-2 border-b border-surface-border flex items-center justify-between">
-          <span className="text-sm text-white font-medium">#{currentChannel?.name || '채널 선택'}</span>
-          <button onClick={loadMessages} disabled={loading} className="text-xs text-gray-500 hover:text-accent disabled:opacity-50">
+          <span className="text-sm text-gray-900 font-medium">#{currentChannel?.name || '채널 선택'}</span>
+          <button onClick={loadMessages} disabled={loading} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-50">
             {loading ? '...' : '새로고침'}
           </button>
         </div>
         <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+          {error && <p className="text-red-500 text-xs">{error}</p>}
           {messages.map(msg => (
             <div key={msg.ts} className="flex gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-surface-card flex items-center justify-center text-xs font-bold text-gray-300 shrink-0">
+              <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
                 {(msg.username || msg.user || '?')[0].toUpperCase()}
               </div>
               <div>
                 <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="text-xs font-semibold text-gray-200">{msg.username || msg.user}</span>
-                  <span className="text-[10px] text-gray-600">{formatSlackTs(msg.ts)}</span>
+                  <span className="text-xs font-semibold text-gray-800">{msg.username || msg.user}</span>
+                  <span className="text-[10px] text-gray-400">{formatSlackTs(msg.ts)}</span>
                 </div>
-                <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.text}</p>
               </div>
             </div>
           ))}
@@ -192,31 +192,31 @@ function TelegramView({ connection, onNavigate }: { connection: ChatConnection; 
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-6 py-2 border-b border-surface-border flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">{connection.name}</span>
-          {botName && <span className="text-xs text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-400 rounded-full" />@{botName}</span>}
+          <span className="text-xs text-gray-500">{connection.name}</span>
+          {botName && <span className="text-xs text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-500 rounded-full" />@{botName}</span>}
         </div>
-        <button onClick={loadMessages} disabled={loading} className="text-xs text-gray-500 hover:text-accent disabled:opacity-50">
+        <button onClick={loadMessages} disabled={loading} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-50">
           {loading ? '...' : '새로고침'}
         </button>
       </div>
       <div className="flex-1 overflow-auto px-6 py-4 space-y-3">
-        {error && <p className="text-red-400 text-xs bg-red-500/10 p-2 rounded-lg">{error}</p>}
+        {error && <p className="text-red-500 text-xs bg-red-50 border border-red-200 p-2 rounded-lg">{error}</p>}
         {messages.length === 0 && !loading && (
-          <div className="text-center py-8 text-gray-500 text-sm">
+          <div className="text-center py-8 text-gray-400 text-sm">
             <p>봇에게 메시지를 보내면 여기에 표시됩니다.</p>
           </div>
         )}
         {messages.map(msg => (
           <div key={msg.message_id} className="flex gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-[#0088cc]/20 flex items-center justify-center text-xs text-[#0088cc] font-bold shrink-0">
+            <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center text-xs text-blue-500 font-bold shrink-0">
               {senderName(msg)[0].toUpperCase()}
             </div>
             <div>
               <div className="flex items-baseline gap-2 mb-0.5">
-                <span className="text-xs font-semibold text-gray-200">{senderName(msg)}</span>
-                <span className="text-[10px] text-gray-600">{formatTgDate(msg.date)}</span>
+                <span className="text-xs font-semibold text-gray-800">{senderName(msg)}</span>
+                <span className="text-[10px] text-gray-400">{formatTgDate(msg.date)}</span>
               </div>
-              <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+              <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.text}</p>
             </div>
           </div>
         ))}
@@ -276,15 +276,15 @@ function McpChatView({ connection, onNavigate }: { connection: ChatConnection; o
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      <div className="w-48 shrink-0 bg-[#0d0d1a] border-r border-surface-border flex flex-col">
-        <p className="px-3 py-2 text-[10px] text-gray-500 font-semibold uppercase tracking-wider">{connection.name}</p>
+      <div className="w-48 shrink-0 bg-gray-50 border-r border-surface-border flex flex-col">
+        <p className="px-3 py-2 text-[10px] text-gray-400 font-semibold uppercase tracking-wider">{connection.name}</p>
         <div className="flex-1 overflow-auto">
           {channels.map(ch => (
             <button
               key={ch.id}
               onClick={() => setSelectedChannel(ch.id)}
               className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                ch.id === selectedChannel ? 'bg-white/10 text-white font-medium' : 'text-gray-400 hover:text-gray-200 hover:bg-surface'
+                ch.id === selectedChannel ? 'bg-gray-200 text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
               # {ch.name}
@@ -295,24 +295,24 @@ function McpChatView({ connection, onNavigate }: { connection: ChatConnection; o
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="px-4 py-2 border-b border-surface-border flex items-center justify-between">
-          <span className="text-sm text-white font-medium">#{currentChannel?.name || selectedChannel || 'MCP 채널'}</span>
-          <button onClick={loadMessages} disabled={loading} className="text-xs text-gray-500 hover:text-accent disabled:opacity-50">
+          <span className="text-sm text-gray-900 font-medium">#{currentChannel?.name || selectedChannel || 'MCP 채널'}</span>
+          <button onClick={loadMessages} disabled={loading} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-50">
             {loading ? '...' : '새로고침'}
           </button>
         </div>
         <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+          {error && <p className="text-red-500 text-xs">{error}</p>}
           {messages.map(msg => (
             <div key={msg.ts} className="flex gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-surface-card flex items-center justify-center text-xs font-bold text-gray-300 shrink-0">
+              <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
                 {(msg.username || msg.user || '?')[0].toUpperCase()}
               </div>
               <div>
                 <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="text-xs font-semibold text-gray-200">{msg.username || msg.user}</span>
-                  <span className="text-[10px] text-gray-600">{formatSlackTs(msg.ts)}</span>
+                  <span className="text-xs font-semibold text-gray-800">{msg.username || msg.user}</span>
+                  <span className="text-[10px] text-gray-400">{formatSlackTs(msg.ts)}</span>
                 </div>
-                <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.text}</p>
               </div>
             </div>
           ))}
@@ -327,12 +327,12 @@ function ConnectPrompt({ platform, onNavigate, keyName }: { platform: string; on
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
       <div className="text-center space-y-1.5">
-        <h3 className="text-lg font-bold text-white">{platform} 연결</h3>
-        <p className="text-gray-400 text-sm max-w-xs leading-relaxed">
+        <h3 className="text-lg font-bold text-gray-900">{platform} 연결</h3>
+        <p className="text-red-500 text-sm max-w-xs leading-relaxed">
           설정에서 {keyName}을 입력하면 메시지를 볼 수 있습니다.
         </p>
       </div>
-      <button onClick={() => onNavigate('settings')} className="px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl">
+      <button onClick={() => onNavigate('settings')} className="px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white text-sm rounded-xl">
         설정으로 이동
       </button>
     </div>

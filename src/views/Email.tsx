@@ -108,29 +108,29 @@ export default function Email({ settings, onNavigate }: Props) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2">
-        <h1 className="text-sm font-bold text-white">받은 편지함</h1>
-        {unread > 0 && <span className="px-1.5 py-0.5 bg-accent text-white text-[10px] font-bold rounded-full">{unread}</span>}
+        <h1 className="text-sm font-bold text-gray-900">받은 편지함</h1>
+        {unread > 0 && <span className="px-1.5 py-0.5 bg-gray-900 text-white text-[10px] font-bold rounded-full">{unread}</span>}
         <select
           value={selected?.id || ''}
           onChange={e => setSelectedId(e.target.value)}
-          className="ml-3 bg-surface text-gray-200 text-xs rounded-lg px-2.5 py-1.5 outline-none border border-surface-border"
+          className="ml-3 bg-white border border-surface-border text-gray-700 text-xs rounded-lg px-2.5 py-1.5 outline-none"
         >
           {accounts.map(account => <option key={account.id} value={account.id}>{account.name || 'Gmail'}</option>)}
         </select>
-        <button onClick={() => onNavigate('settings')} className="text-xs text-gray-500 hover:text-accent">계정 관리</button>
+        <button onClick={() => onNavigate('settings')} className="text-xs text-gray-400 hover:text-gray-700">계정 관리</button>
         <div className="ml-auto flex items-center gap-2">
           {token ? (
             <>
-              <span className="text-xs text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-400 rounded-full" />연결됨</span>
-              <button onClick={() => loadEmails()} disabled={loading} className="text-xs px-2.5 py-1 bg-surface hover:bg-surface-hover text-gray-300 rounded-lg disabled:opacity-50">
+              <span className="text-xs text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-500 rounded-full" />연결됨</span>
+              <button onClick={() => loadEmails()} disabled={loading} className="text-xs px-2.5 py-1 bg-surface border border-surface-border hover:bg-surface-hover text-gray-700 rounded-lg disabled:opacity-50">
                 {loading ? '로딩...' : '새로고침'}
               </button>
-              <button onClick={handleDisconnect} className="text-xs px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg">
+              <button onClick={handleDisconnect} className="text-xs px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 rounded-lg">
                 연결 해제
               </button>
             </>
           ) : (
-            <button onClick={handleConnect} disabled={connecting} className="text-xs px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 font-medium rounded-lg disabled:opacity-60">
+            <button onClick={handleConnect} disabled={connecting} className="text-xs px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white font-medium rounded-lg disabled:opacity-60">
               {connecting ? '연결 중...' : selected?.provider === 'mcp' ? 'MCP 조회' : 'Gmail 연결'}
             </button>
           )}
@@ -138,15 +138,15 @@ export default function Email({ settings, onNavigate }: Props) {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {error && <div className="m-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">{error}</div>}
+        {error && <div className="m-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-500">{error}</div>}
         {!token ? (
           <ConnectPrompt title={`${selected?.name || 'Gmail'} 연결`} body="이 계정의 Gmail 받은 편지함을 보려면 연결하세요." onNavigate={onNavigate} inline />
         ) : loading && emails.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-sm">메일 로딩 중...</div>
+          <div className="flex items-center justify-center h-32 text-gray-400 text-sm">메일 로딩 중...</div>
         ) : emails.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-sm">받은 편지함이 비어 있습니다.</div>
+          <div className="flex items-center justify-center h-32 text-gray-400 text-sm">받은 편지함이 비어 있습니다.</div>
         ) : (
-          <div className="divide-y divide-surface-border/50">
+          <div className="divide-y divide-surface-border">
             {emails.map(email => <EmailRow key={email.id} email={email} />)}
           </div>
         )}
@@ -164,10 +164,10 @@ function ConnectPrompt({ title, body, onNavigate, inline = false }: {
   return (
     <div className={`flex flex-col items-center justify-center gap-4 p-8 ${inline ? 'h-64' : 'flex-1'}`}>
       <div className="text-center space-y-1.5">
-        <h2 className="text-xl font-bold text-white">{title}</h2>
-        <p className="text-gray-400 text-sm max-w-xs leading-relaxed">{body}</p>
+        <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+        <p className="text-red-500 text-sm max-w-xs leading-relaxed">{body}</p>
       </div>
-      <button onClick={() => onNavigate('settings')} className="px-5 py-2.5 bg-surface border border-surface-border rounded-xl text-sm text-gray-300 hover:bg-surface-hover">
+      <button onClick={() => onNavigate('settings')} className="px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white rounded-xl text-sm">
         설정으로 이동
       </button>
     </div>
@@ -177,16 +177,16 @@ function ConnectPrompt({ title, body, onNavigate, inline = false }: {
 function EmailRow({ email }: { email: EmailMessage }) {
   const [open, setOpen] = useState(false)
   return (
-    <div onClick={() => setOpen(!open)} className={`px-6 py-3.5 cursor-pointer hover:bg-surface ${!email.isRead ? 'border-l-2 border-accent' : ''}`}>
+    <div onClick={() => setOpen(!open)} className={`px-6 py-3.5 cursor-pointer hover:bg-surface-hover ${!email.isRead ? 'border-l-2 border-gray-900' : ''}`}>
       <div className="flex items-start gap-3">
-        <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${email.isRead ? 'bg-transparent' : 'bg-accent'}`} />
+        <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${email.isRead ? 'bg-transparent' : 'bg-gray-900'}`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className={`text-sm truncate ${email.isRead ? 'text-gray-400' : 'text-white font-semibold'}`}>{email.from}</span>
-            <span className="text-[10px] text-gray-500 shrink-0">{email.date}</span>
+            <span className={`text-sm truncate ${email.isRead ? 'text-gray-500' : 'text-gray-900 font-semibold'}`}>{email.from}</span>
+            <span className="text-[10px] text-gray-400 shrink-0">{email.date}</span>
           </div>
-          <p className={`text-xs mt-0.5 ${email.isRead ? 'text-gray-500' : 'text-gray-300'} ${open ? '' : 'truncate'}`}>{email.subject}</p>
-          <p className={`text-xs text-gray-600 mt-0.5 leading-relaxed ${open ? '' : 'truncate'}`}>{email.snippet}</p>
+          <p className={`text-xs mt-0.5 ${email.isRead ? 'text-gray-400' : 'text-gray-700'} ${open ? '' : 'truncate'}`}>{email.subject}</p>
+          <p className={`text-xs text-gray-400 mt-0.5 leading-relaxed ${open ? '' : 'truncate'}`}>{email.snippet}</p>
         </div>
       </div>
     </div>

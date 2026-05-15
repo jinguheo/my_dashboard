@@ -115,7 +115,7 @@ export default function SettingsView({ settings, onSave }: Props) {
   return (
     <div className="flex-1 overflow-auto p-6">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-xl font-bold text-white mb-6">설정</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-6">설정</h1>
 
         <form onSubmit={handleSave} className="space-y-5">
           <Section title="설정 파일 가져오기">
@@ -124,13 +124,13 @@ export default function SettingsView({ settings, onSave }: Props) {
                 type="file"
                 accept="application/json,.json"
                 onChange={e => importSettingsFile(e.target.files?.[0])}
-                className="block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-accent/15 file:px-3 file:py-2 file:text-xs file:font-medium file:text-accent-light hover:file:bg-accent/25"
+                className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200"
               />
             </label>
             <p className="text-xs text-gray-500 leading-relaxed">
               JSON 파일의 설정을 현재 값에 병합합니다. 같은 id의 연결은 업데이트하고, 새 id는 목록에 추가합니다. MCP 연결의 extraArgs는 tool arguments에 함께 전달됩니다.
             </p>
-            {importMessage && <p className="text-xs text-accent-light">{importMessage}</p>}
+            {importMessage && <p className="text-xs text-gray-600">{importMessage}</p>}
           </Section>
 
           <Section title="프로필">
@@ -153,8 +153,8 @@ export default function SettingsView({ settings, onSave }: Props) {
                   onClick={() => setField('dataAccessMode', mode)}
                   className={`rounded-xl border px-3 py-3 text-left transition-colors ${
                     form.dataAccessMode === mode
-                      ? 'border-accent bg-accent/15 text-white'
-                      : 'border-surface-border bg-surface text-gray-400 hover:text-gray-200'
+                      ? 'border-gray-900 bg-gray-900 text-white'
+                      : 'border-surface-border bg-white text-gray-600 hover:bg-surface-hover'
                   }`}
                 >
                   <span className="block text-sm font-semibold">{mode === 'api-key' ? 'API_KEY' : 'MCP'}</span>
@@ -181,7 +181,7 @@ export default function SettingsView({ settings, onSave }: Props) {
           </Section>
 
           <Section title="메일 계정" action={<SmallButton onClick={addMail}>추가</SmallButton>}>
-            {form.mailAccounts.length === 0 && <EmptyText>Gmail 계정을 추가하세요.</EmptyText>}
+            {form.mailAccounts.length === 0 && <SetupText>Gmail 계정을 추가하세요.</SetupText>}
             {form.mailAccounts.map(account => (
               <ConnectionRow key={account.id} onRemove={() => setField('mailAccounts', form.mailAccounts.filter(a => a.id !== account.id))}>
                 <div className="grid grid-cols-2 gap-3">
@@ -213,7 +213,7 @@ export default function SettingsView({ settings, onSave }: Props) {
           </Section>
 
           <Section title="캘린더 계정" action={<SmallButton onClick={addCalendar}>추가</SmallButton>}>
-            {form.calendarAccounts.length === 0 && <EmptyText>Google Calendar 계정을 추가하세요.</EmptyText>}
+            {form.calendarAccounts.length === 0 && <SetupText>Google Calendar 계정을 추가하세요.</SetupText>}
             {form.calendarAccounts.map(account => (
               <ConnectionRow key={account.id} onRemove={() => setField('calendarAccounts', form.calendarAccounts.filter(a => a.id !== account.id))}>
                 <div className="grid grid-cols-2 gap-3">
@@ -251,7 +251,7 @@ export default function SettingsView({ settings, onSave }: Props) {
               <SmallButton onClick={() => addChat('mcp')}>MCP</SmallButton>
             </div>
           }>
-            {form.chatConnections.length === 0 && <EmptyText>Slack 또는 Telegram 연결을 추가하세요.</EmptyText>}
+            {form.chatConnections.length === 0 && <SetupText>Slack 또는 Telegram 연결을 추가하세요.</SetupText>}
             {form.chatConnections.map(conn => (
               <ConnectionRow key={conn.id} onRemove={() => setField('chatConnections', form.chatConnections.filter(c => c.id !== conn.id))}>
                 <div className="grid grid-cols-2 gap-3">
@@ -286,7 +286,7 @@ export default function SettingsView({ settings, onSave }: Props) {
           <button
             type="submit"
             className={`w-full py-3 rounded-xl text-sm font-semibold transition-all ${
-              saved ? 'bg-green-500 text-white' : 'bg-accent hover:bg-accent-hover text-white'
+              saved ? 'bg-green-600 text-white' : 'bg-gray-900 hover:bg-gray-700 text-white'
             }`}
           >
             {saved ? '저장됨' : '저장'}
@@ -303,9 +303,9 @@ function Section({ title, children, action }: {
   action?: React.ReactNode
 }) {
   return (
-    <section className="bg-surface rounded-xl p-5 space-y-4">
+    <section className="bg-white border border-surface-border rounded-xl p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-accent-light">{title}</h2>
+        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
         {action}
       </div>
       {children}
@@ -322,13 +322,13 @@ function Field({ label, value, onChange, type = 'text', placeholder = '' }: {
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-gray-300">{label}</span>
+      <span className="text-sm font-medium text-gray-700">{label}</span>
       <input
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full bg-surface-card rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50"
+        className="w-full bg-white border border-surface-border rounded-xl px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
       />
     </label>
   )
@@ -342,13 +342,13 @@ function TextArea({ label, value, onChange, placeholder = '' }: {
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-gray-300">{label}</span>
+      <span className="text-sm font-medium text-gray-700">{label}</span>
       <textarea
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         rows={4}
-        className="w-full bg-surface-card rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50 resize-none"
+        className="w-full bg-white border border-surface-border rounded-xl px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 resize-none"
       />
     </label>
   )
@@ -362,11 +362,11 @@ function Select({ label, value, onChange, options }: {
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-gray-300">{label}</span>
+      <span className="text-sm font-medium text-gray-700">{label}</span>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full bg-surface-card rounded-xl px-4 py-2.5 text-sm text-gray-100 outline-none focus:ring-1 focus:ring-accent/50"
+        className="w-full bg-white border border-surface-border rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-gray-400"
       >
         {options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
@@ -379,7 +379,7 @@ function SmallButton({ children, onClick }: { children: React.ReactNode; onClick
     <button
       type="button"
       onClick={onClick}
-      className="px-3 py-1.5 rounded-lg bg-accent/15 text-accent-light hover:bg-accent/25 text-xs font-medium transition-colors"
+      className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium transition-colors"
     >
       {children}
     </button>
@@ -390,15 +390,15 @@ function ConnectionRow({ children, onRemove }: { children: React.ReactNode; onRe
   return (
     <div className="border border-surface-border rounded-xl p-4 space-y-3">
       <div className="flex justify-end">
-        <button type="button" onClick={onRemove} className="text-xs text-red-400 hover:text-red-300">삭제</button>
+        <button type="button" onClick={onRemove} className="text-xs text-red-500 hover:text-red-700">삭제</button>
       </div>
       {children}
     </div>
   )
 }
 
-function EmptyText({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-gray-500">{children}</p>
+function SetupText({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-red-500">{children}</p>
 }
 
 function AuthFields({ auth, onChange }: {
@@ -409,7 +409,7 @@ function AuthFields({ auth, onChange }: {
   const update = (patch: Partial<ConnectionAuth>) => onChange({ ...current, ...patch })
 
   return (
-    <div className="border border-surface-border/60 rounded-xl p-3 space-y-3">
+    <div className="border border-surface-border rounded-xl p-3 space-y-3">
       <Select
         label="인증 방식"
         value={current.mode}
@@ -459,14 +459,14 @@ function ExtraArgsFields({ value, onChange }: {
 
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-gray-300">추가 인자(JSON)</span>
+      <span className="text-sm font-medium text-gray-700">추가 인자(JSON)</span>
       <textarea
         value={text}
         onChange={e => update(e.target.value)}
         rows={4}
-        className="w-full bg-surface-card rounded-xl px-4 py-2.5 font-mono text-xs text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50 resize-none"
+        className="w-full bg-white border border-surface-border rounded-xl px-4 py-2.5 font-mono text-xs text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 resize-none"
       />
-      <span className={`text-xs ${error ? 'text-red-400' : 'text-gray-500'}`}>
+      <span className={`text-xs ${error ? 'text-red-500' : 'text-gray-400'}`}>
         {error || 'MCP tool arguments에 병합됩니다.'}
       </span>
     </label>
@@ -496,12 +496,12 @@ function McpTestButton({ endpoint, auth }: { endpoint: string; auth?: Connection
         type="button"
         onClick={test}
         disabled={!endpoint || status === 'loading'}
-        className="text-xs px-2.5 py-1 bg-surface hover:bg-surface-hover text-gray-400 rounded-lg border border-surface-border/60 disabled:opacity-40"
+        className="text-xs px-2.5 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg border border-surface-border disabled:opacity-40"
       >
         {status === 'loading' ? '테스트 중...' : '연결 테스트'}
       </button>
-      {status === 'ok' && <span className="text-xs text-green-400">✓ {info}</span>}
-      {status === 'error' && <span className="text-xs text-red-400">✗ {info}</span>}
+      {status === 'ok' && <span className="text-xs text-green-600">✓ {info}</span>}
+      {status === 'error' && <span className="text-xs text-red-500">✗ {info}</span>}
     </div>
   )
 }
@@ -530,48 +530,38 @@ function McpToolField({ label, endpoint, auth, value, onChange, defaultPlacehold
 
   return (
     <div className="space-y-1.5 relative">
-      <span className="block text-sm font-medium text-gray-300">{label}</span>
+      <span className="block text-sm font-medium text-gray-700">{label}</span>
       <div className="flex gap-2">
         <input
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={defaultPlaceholder}
-          className="flex-1 bg-surface-card rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 outline-none focus:ring-1 focus:ring-accent/50"
+          className="flex-1 bg-white border border-surface-border rounded-xl px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
         />
         <button
           type="button"
           onClick={load}
           disabled={!endpoint || loading}
-          className="px-3 bg-surface hover:bg-surface-hover text-gray-400 text-xs rounded-xl border border-surface-border disabled:opacity-40 shrink-0"
+          className="px-3 bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs rounded-xl border border-surface-border disabled:opacity-40 shrink-0"
           title="MCP 서버에서 도구 목록 불러오기"
         >
-          {loading ? '···' : '목록'}
+          {loading ? '...' : '목록'}
         </button>
       </div>
-      {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-[#12122a] border border-surface-border rounded-xl shadow-2xl max-h-52 overflow-auto">
-          {tools.length === 0
-            ? <p className="px-3 py-2.5 text-xs text-gray-500">도구가 없습니다.</p>
-            : tools.map(t => (
-                <button
-                  key={t.name}
-                  type="button"
-                  onClick={() => { onChange(t.name); setOpen(false) }}
-                  className="w-full text-left px-3 py-2.5 hover:bg-surface/60 flex items-baseline gap-2 text-xs border-b border-surface-border/40 last:border-0"
-                >
-                  <code className="text-accent-light shrink-0">{t.name}</code>
-                  {t.description && <span className="text-gray-500 truncate">{t.description}</span>}
-                </button>
-              ))
-          }
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="w-full px-3 py-2 text-[10px] text-gray-600 hover:text-gray-400 text-right border-t border-surface-border"
-          >
-            닫기
-          </button>
+      {open && tools.length > 0 && (
+        <div className="absolute z-10 top-full mt-1 w-full bg-white border border-surface-border rounded-xl shadow-lg overflow-hidden">
+          {tools.map(t => (
+            <button
+              key={t.name}
+              type="button"
+              onClick={() => { onChange(t.name); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-surface-hover"
+            >
+              <span className="font-medium text-gray-900">{t.name}</span>
+              {t.description && <span className="ml-2 text-gray-400 truncate">{t.description}</span>}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -590,44 +580,50 @@ function McpQuickSetupBar({ endpoint, onSetup }: {
     setStatus('loading')
     try {
       const tools = await listMcpTools(endpoint)
-      const names = tools.map(t => t.name)
-      const inbox = names.find(n => /mail|inbox|email/i.test(n)) ?? 'mail.inbox'
-      const events = names.find(n => /calendar|event|schedule/i.test(n)) ?? 'calendar.events'
-      const chs = names.find(n => /channel/i.test(n)) ?? 'chat.channels'
-      const msgs = names.find(n => /message/i.test(n)) ?? 'chat.messages'
-      onSetup(
-        [{ id: 'mcp-quick-mail', name: 'MCP 메일', provider: 'mcp', mcpEndpoint: endpoint, inboxTool: inbox, auth: { mode: 'none' } }],
-        [{ id: 'mcp-quick-cal', name: 'MCP 캘린더', provider: 'mcp', mcpEndpoint: endpoint, eventsTool: events, auth: { mode: 'none' } }],
-        [{ id: 'mcp-quick-chat', name: 'MCP 채팅', platform: 'mcp', mcpEndpoint: endpoint, channelsTool: chs, messagesTool: msgs, auth: { mode: 'none' } }],
-      )
+      const names = tools.map((t: { name: string }) => t.name)
+
+      const mailTools = names.filter((n: string) => /mail|inbox|email/i.test(n))
+      const calTools = names.filter((n: string) => /calendar|event|schedule/i.test(n))
+      const chatTools = names.filter((n: string) => /chat|message|channel|slack|telegram/i.test(n))
+
+      const newId = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+
+      const mail: MailAccount[] = mailTools.length
+        ? [{ id: newId('mail'), name: 'MCP Mail', provider: 'mcp', mcpEndpoint: endpoint, inboxTool: mailTools[0], auth: { mode: 'none' } }]
+        : []
+      const cal: CalendarAccount[] = calTools.length
+        ? [{ id: newId('cal'), name: 'MCP Calendar', provider: 'mcp', mcpEndpoint: endpoint, eventsTool: calTools[0], auth: { mode: 'none' } }]
+        : []
+      const chat: ChatConnection[] = chatTools.length
+        ? [{ id: newId('chat'), name: 'MCP Chat', platform: 'mcp', token: '', channelId: '', mcpEndpoint: endpoint, channelsTool: chatTools.find((n: string) => /channel/i.test(n)) || chatTools[0], messagesTool: chatTools.find((n: string) => /message/i.test(n)) || chatTools[0], auth: { mode: 'none' } }]
+        : []
+
+      onSetup(mail, cal, chat)
       setStatus('done')
-      setMsg(`도구 ${tools.length}개 발견 → 메일·캘린더·채팅 연결 추가됨`)
+      setMsg(`메일 ${mail.length}·캘린더 ${cal.length}·채팅 ${chat.length}개 연결 생성`)
     } catch (e: any) {
       setStatus('error')
-      setMsg(e.message || '연결 실패')
+      setMsg(e.message || '도구 탐색 실패')
     }
   }
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-accent/5 border border-accent/20 rounded-xl">
+    <div className="flex items-center gap-3 p-3 bg-gray-50 border border-surface-border rounded-xl">
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-accent-light">MCP 빠른 설정</p>
-        <p className="text-[11px] mt-0.5 leading-relaxed">
-          {status === 'done'
-            ? <span className="text-green-400">{msg}</span>
-            : status === 'error'
-              ? <span className="text-red-400">{msg}</span>
-              : <span className="text-gray-500">도구를 탐색해 메일·캘린더·채팅 연결을 자동 생성합니다.</span>}
-        </p>
+        <p className="text-xs font-medium text-gray-800">MCP 빠른 설정</p>
+        <p className="text-[11px] text-gray-500 mt-0.5">도구를 탐색해 메일·캘린더·채팅 연결을 자동 생성합니다.</p>
       </div>
       <button
         type="button"
         onClick={run}
         disabled={!endpoint || status === 'loading'}
-        className="shrink-0 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg disabled:opacity-50"
+        className="shrink-0 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700 disabled:opacity-40"
       >
-        {status === 'loading' ? '설정 중...' : '자동 설정'}
+        {status === 'loading' ? '탐색 중...' : '자동 설정'}
       </button>
+      {(status === 'done' || status === 'error') && (
+        <span className={`text-xs ${status === 'done' ? 'text-green-600' : 'text-red-500'}`}>{msg}</span>
+      )}
     </div>
   )
 }

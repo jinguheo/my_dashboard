@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
 import Dashboard from '@/views/Dashboard'
 import Todos from '@/views/Todos'
@@ -8,11 +8,13 @@ import Calendar from '@/views/Calendar'
 import Email from '@/views/Email'
 import Chat from '@/views/Chat'
 import Settings from '@/views/Settings'
+import History from '@/views/History'
 import { useTodos } from '@/store/useTodos'
 import { useNotes } from '@/store/useNotes'
 import { useCalendar } from '@/store/useCalendar'
 import { useSettings } from '@/store/useSettings'
 import { usePolling } from '@/hooks/usePolling'
+import { saveSnapshot, hasSnapshotToday, todayStr } from '@/services/snapshot'
 import type { View } from '@/types'
 
 interface Toast { title: string; body: string; view: 'email' | 'chat' }
@@ -42,6 +44,36 @@ export default function App() {
 
   usePolling({ settings, onBadge: handleBadge, onToast: handleToast, navigate })
 
+  // 하루 첫 접속 시 스냅샷 자동 저장
+  useEffect(() => {
+    if (!hasSnapshotToday()) {
+      saveSnapshot({
+        todos: todos.todos,
+        notes: notes.notes,
+        calendarEvents: calendar.events,
+        briefing: localStorage.getItem(`briefing-${todayStr()}`) || '',
+        completedCount: todos.completedToday.length,
+      })
+    }
+  }, [])
+
+  // 브리핑 생성 후 스냅샷 갱신 (briefing localStorage 변화 감지)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === `briefing-${todayStr()}`) {
+        saveSnapshot({
+          todos: todos.todos,
+          notes: notes.notes,
+          calendarEvents: calendar.events,
+          briefing: e.newValue || '',
+          completedCount: todos.completedToday.length,
+        })
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [todos.todos, notes.notes, calendar.events, todos.completedToday.length])
+
   function handleNavigate(v: View) {
     setView(v)
     if (v === 'email') setBadges(p => ({ ...p, email: 0 }))
@@ -49,7 +81,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0d0d1a] text-gray-100 overflow-hidden">
+    <div className="flex h-screen bg-white text-gray-900 overflow-hidden">
       <Sidebar current={view} onNavigate={handleNavigate} badges={badges} />
 
       <main className="flex-1 overflow-hidden flex flex-col">
@@ -63,23 +95,24 @@ export default function App() {
         {view === 'chat'     && <Chat settings={settings} onNavigate={handleNavigate} />}
         {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} />}
         {view === 'settings' && <Settings settings={settings} onSave={updateSettings} />}
+        {view === 'history'  && <History />}
       </main>
 
       {/* In-app toast */}
       {toast && (
         <div
           onClick={() => { handleNavigate(toast.view); setToast(null) }}
-          className="fixed bottom-5 right-5 z-50 max-w-xs bg-surface border border-surface-border rounded-2xl p-4 shadow-2xl cursor-pointer hover:bg-surface-hover transition-all animate-slide-up"
+          className="fixed bottom-5 right-5 z-50 max-w-xs bg-white border border-surface-border rounded-2xl p-4 shadow-lg cursor-pointer hover:bg-surface-hover transition-all animate-slide-up"
         >
           <div className="flex items-start gap-3">
             <span className="text-xl shrink-0">{toast.view === 'email' ? '📧' : '💬'}</span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{toast.title}</p>
-              <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{toast.body}</p>
+              <p className="text-sm font-semibold text-gray-900 truncate">{toast.title}</p>
+              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{toast.body}</p>
             </div>
             <button
               onClick={e => { e.stopPropagation(); setToast(null) }}
-              className="text-gray-600 hover:text-gray-300 text-lg leading-none shrink-0 ml-1"
+              className="text-gray-400 hover:text-gray-700 text-lg leading-none shrink-0 ml-1"
             >×</button>
           </div>
         </div>

@@ -5,18 +5,18 @@ export default {
     extend: {
       colors: {
         surface: {
-          DEFAULT: '#1a1a2e',
-          card: '#16213e',
-          hover: '#0f3460',
-          border: '#2a2a50',
-          deep: '#0d0d1a',
+          DEFAULT: '#f9fafb',
+          card: '#ffffff',
+          hover: '#f3f4f6',
+          border: '#e5e7eb',
+          deep: '#f3f4f6',
         },
         accent: {
-          DEFAULT: '#7c3aed',
-          hover: '#6d28d9',
-          light: '#a78bfa',
-          muted: '#4c1d95',
-          bg: '#1e0545',
+          DEFAULT: '#111827',
+          hover: '#374151',
+          light: '#6b7280',
+          muted: '#9ca3af',
+          bg: '#f3f4f6',
         },
       },
     },

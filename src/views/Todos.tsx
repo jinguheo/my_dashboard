@@ -3,9 +3,9 @@ import type { TodoState } from '@/store/useTodos'
 import type { Priority } from '@/types'
 
 const PRIORITY_COLOR = {
-  high: 'bg-red-500/10 text-red-400 border-red-500/30',
-  medium: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
-  low: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+  high: 'bg-red-50 text-red-600 border-red-200',
+  medium: 'bg-amber-50 text-amber-600 border-amber-200',
+  low: 'bg-blue-50 text-blue-600 border-blue-200',
 }
 const PRIORITY_LABEL = { high: '높음', medium: '중간', low: '낮음' }
 
@@ -42,21 +42,20 @@ export default function Todos({ todos }: Props) {
 
   return (
     <div className="flex-1 overflow-auto p-6 max-w-3xl mx-auto w-full">
-      <h1 className="text-xl font-bold text-white mb-5">✓ 할 일</h1>
+      <h1 className="text-xl font-bold text-gray-900 mb-5">✓ 할 일</h1>
 
-      {/* Add Form */}
-      <form onSubmit={handleAdd} className="bg-surface rounded-xl p-4 mb-5 space-y-3">
+      <form onSubmit={handleAdd} className="bg-white border border-surface-border rounded-xl p-4 mb-5 space-y-3">
         <input
           value={text}
           onChange={e => setText(e.target.value)}
           placeholder="새로운 할 일을 입력하세요..."
-          className="w-full bg-surface-card rounded-lg px-3 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none focus:ring-1 focus:ring-accent/50"
+          className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
         />
         <div className="flex gap-2 flex-wrap">
           <select
             value={priority}
             onChange={e => setPriority(e.target.value as Priority)}
-            className="bg-surface-card text-sm text-gray-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-accent/50"
+            className="bg-white border border-surface-border text-sm text-gray-700 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-gray-400"
           >
             <option value="high">🔴 높음</option>
             <option value="medium">🟡 중간</option>
@@ -66,31 +65,30 @@ export default function Todos({ todos }: Props) {
             value={category}
             onChange={e => setCategory(e.target.value)}
             placeholder="카테고리"
-            className="bg-surface-card text-sm text-gray-300 rounded-lg px-3 py-1.5 w-28 outline-none focus:ring-1 focus:ring-accent/50"
+            className="bg-white border border-surface-border text-sm text-gray-700 rounded-lg px-3 py-1.5 w-28 outline-none focus:ring-1 focus:ring-gray-400"
           />
           <input
             type="date"
             value={dueDate}
             onChange={e => setDueDate(e.target.value)}
-            className="bg-surface-card text-sm text-gray-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-accent/50"
+            className="bg-white border border-surface-border text-sm text-gray-700 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-gray-400"
           />
           <button
             type="submit"
-            className="ml-auto px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors"
+            className="ml-auto px-4 py-1.5 bg-gray-900 hover:bg-gray-700 text-white text-sm rounded-lg transition-colors"
           >
             + 추가
           </button>
         </div>
       </form>
 
-      {/* Filter */}
       <div className="flex gap-2 mb-4">
         {([['all', '전체'], ['pending', '미완료'], ['done', '완료'], ['high', '높은 우선순위']] as const).map(([f, label]) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-              filter === f ? 'bg-accent text-white' : 'bg-surface text-gray-400 hover:text-gray-200'
+              filter === f ? 'bg-gray-900 text-white' : 'bg-surface border border-surface-border text-gray-600 hover:bg-surface-hover'
             }`}
           >
             {label}
@@ -102,20 +100,19 @@ export default function Todos({ todos }: Props) {
             </span>
           </button>
         ))}
-        <span className="ml-auto text-xs text-gray-500 self-center">
+        <span className="ml-auto text-xs text-gray-400 self-center">
           오늘 완료: {todos.completedToday.length}개
         </span>
       </div>
 
-      {/* Todo List */}
       <div className="space-y-2">
         {sorted.length === 0 ? (
-          <div className="text-center py-12 text-gray-500 text-sm">할 일이 없습니다 🎉</div>
+          <div className="text-center py-12 text-gray-400 text-sm">할 일이 없습니다 🎉</div>
         ) : (
           sorted.map(todo => (
             <div
               key={todo.id}
-              className={`flex items-start gap-3 bg-surface rounded-xl px-4 py-3 group transition-colors ${
+              className={`flex items-start gap-3 bg-white border border-surface-border rounded-xl px-4 py-3 group transition-colors ${
                 todo.done ? 'opacity-50' : 'hover:bg-surface-hover'
               }`}
             >
@@ -123,14 +120,14 @@ export default function Todos({ todos }: Props) {
                 onClick={() => todos.toggle(todo.id)}
                 className={`mt-0.5 w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-all ${
                   todo.done
-                    ? 'bg-accent border-accent text-white'
-                    : 'border-surface-border hover:border-accent'
+                    ? 'bg-gray-900 border-gray-900 text-white'
+                    : 'border-gray-300 hover:border-gray-600'
                 }`}
               >
                 {todo.done && <span className="text-xs">✓</span>}
               </button>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm ${todo.done ? 'line-through text-gray-500' : 'text-gray-100'}`}>
+                <p className={`text-sm ${todo.done ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                   {todo.text}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
@@ -138,18 +135,18 @@ export default function Todos({ todos }: Props) {
                     {PRIORITY_LABEL[todo.priority]}
                   </span>
                   {todo.category && (
-                    <span className="text-[10px] text-gray-500 bg-surface-card px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                       {todo.category}
                     </span>
                   )}
                   {todo.dueDate && (
-                    <span className="text-[10px] text-orange-400">마감: {todo.dueDate}</span>
+                    <span className="text-[10px] text-orange-500">마감: {todo.dueDate}</span>
                   )}
                 </div>
               </div>
               <button
                 onClick={() => todos.remove(todo.id)}
-                className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all text-lg leading-none mt-0.5"
+                className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all text-lg leading-none mt-0.5"
               >
                 ×
               </button>
