@@ -41,7 +41,16 @@ function loadScript(src: string): Promise<void> {
 
 export async function loadGoogleAuth(): Promise<void> {
   await loadScript('https://accounts.google.com/gsi/client')
-  await new Promise(r => setTimeout(r, 800))
+  // 스크립트 로드 후 window.google.accounts 객체가 실제로 준비될 때까지 대기
+  await new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + 5000
+    const check = () => {
+      if (window.google?.accounts?.oauth2) { resolve(); return }
+      if (Date.now() > deadline) { reject(new Error('Google API 초기화 시간 초과')); return }
+      setTimeout(check, 50)
+    }
+    check()
+  })
 }
 
 export function getStoredToken(accountId?: string): string | null {
@@ -109,6 +118,30 @@ function fmtDate(internalDate: string): string {
   return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
 }
 
+const BATCH_API = 'https://www.googleapis.com/batch/gmail/v1'
+
+function buildBatchBody(ids: string[], boundary: string): string {
+  return ids.map((id, i) => [
+    `--${boundary}`,
+    'Content-Type: application/http',
+    `Content-ID: <item${i}>`,
+    '',
+    `GET /gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date HTTP/1.1`,
+    '',
+  ].join('\r\n')).join('\r\n') + `\r\n--${boundary}--`
+}
+
+function parseBatchResponse(body: string, boundary: string): any[] {
+  return body.split(`--${boundary}`)
+    .slice(1, -1)
+    .map(part => {
+      const jsonStart = part.indexOf('{')
+      if (jsonStart === -1) return null
+      try { return JSON.parse(part.slice(jsonStart)) } catch { return null }
+    })
+    .filter(Boolean)
+}
+
 export async function fetchInbox(token: string, maxResults = 25, accountId?: string): Promise<EmailMessage[]> {
   const hdrs = { Authorization: `Bearer ${token}` }
 
@@ -120,28 +153,42 @@ export async function fetchInbox(token: string, maxResults = 25, accountId?: str
   if (!listRes.ok) throw new Error('받은편지함 로드 실패')
 
   const { messages = [] } = await listRes.json()
+  const ids: string[] = messages.slice(0, maxResults).map((m: any) => m.id)
+  if (!ids.length) return []
 
-  return Promise.all(
-    messages.slice(0, maxResults).map(async (m: any) => {
-      const res = await fetch(
-        `${API}/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
-        { headers: hdrs },
-      )
-      const msg = await res.json()
-      const hs = msg.payload?.headers || []
-      const from = parseFrom(header(hs, 'From'))
-      return {
-        id: msg.id,
-        threadId: msg.threadId,
-        subject: header(hs, 'Subject') || '(제목 없음)',
-        from: from.name,
-        fromEmail: from.email,
-        snippet: msg.snippet || '',
-        date: fmtDate(msg.internalDate),
-        isRead: !(msg.labelIds || []).includes('UNREAD'),
-      } as EmailMessage
-    }),
-  )
+  const boundary = `batch_${Date.now()}`
+  const batchRes = await fetch(BATCH_API, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/mixed; boundary=${boundary}`,
+    },
+    body: buildBatchBody(ids, boundary),
+  })
+
+  if (!batchRes.ok) throw new Error('배치 메시지 로드 실패')
+
+  const rawBody = await batchRes.text()
+  const contentType = batchRes.headers.get('Content-Type') || ''
+  const boundaryMatch = contentType.match(/boundary=([^\s;]+)/)
+  const resBoundary = boundaryMatch ? boundaryMatch[1] : boundary
+
+  const msgs = parseBatchResponse(rawBody, resBoundary)
+
+  return msgs.map((msg: any) => {
+    const hs = msg.payload?.headers || []
+    const from = parseFrom(header(hs, 'From'))
+    return {
+      id: msg.id,
+      threadId: msg.threadId,
+      subject: header(hs, 'Subject') || '(제목 없음)',
+      from: from.name,
+      fromEmail: from.email,
+      snippet: msg.snippet || '',
+      date: fmtDate(msg.internalDate),
+      isRead: !(msg.labelIds || []).includes('UNREAD'),
+    } as EmailMessage
+  })
 }
 
 export async function fetchInboxFromMcp(

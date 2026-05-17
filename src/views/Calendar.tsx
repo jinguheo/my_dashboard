@@ -5,7 +5,7 @@ import { loadGoogleAuth } from '@/services/gmail'
 import {
   getCalendarToken, storeCalendarToken,
   requestCalendarToken, revokeCalendarToken,
-  fetchGCalEvents, fetchGCalEventsFromMcp, gcalDateStr, gcalTimeStr, gcalColor,
+  fetchGCalEvents, fetchGCalEventsFromMcp, fetchCalDavEvents, fetchIcsEvents, gcalDateStr, gcalTimeStr, gcalColor,
   type GCalEvent,
 } from '@/services/googleCalendar'
 import type { Settings } from '@/types'
@@ -66,7 +66,12 @@ export default function Calendar({ calendar, settings }: Props) {
   }, [accounts])
 
   function refreshTokenState() {
-    setTokens(Object.fromEntries(accounts.map(a => [a.id, a.provider === 'mcp' ? !!a.mcpEndpoint : !!getCalendarToken(a.id)])))
+    setTokens(Object.fromEntries(accounts.map(a =>
+      [a.id, a.provider === 'mcp' ? !!a.mcpEndpoint
+        : a.provider === 'caldav' ? !!(a.caldavEmail && a.caldavPassword)
+        : a.provider === 'ics' ? !!a.icsUrl
+        : !!getCalendarToken(a.id)]
+    )))
   }
 
   async function loadAllGcal() {
@@ -78,6 +83,21 @@ export default function Calendar({ calendar, settings }: Props) {
         if (account.provider === 'mcp') {
           if (!account.mcpEndpoint) return []
           events = await fetchGCalEventsFromMcp(account.mcpEndpoint, account.eventsTool || 'calendar.events', 60, account.auth, account.extraArgs)
+        } else if (account.provider === 'ics') {
+          if (!account.icsUrl) return []
+          const endpoint = account.mcpEndpoint || settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp'
+          events = await fetchIcsEvents(endpoint, account.icsUrl, 60)
+        } else if (account.provider === 'caldav') {
+          // 자체 credentials 없으면 IMAP Gmail 계정에서 자동으로 가져옴
+          const imapGmail = settings.mailAccounts?.find(
+            m => (m.provider === 'imap' || m.provider === 'naver') &&
+              m.auth?.mode === 'account-password' && m.auth.username && m.auth.password
+          )
+          const email = account.caldavEmail || imapGmail?.auth?.username || ''
+          const password = account.caldavPassword || imapGmail?.auth?.password || ''
+          if (!email || !password) return []
+          const endpoint = account.mcpEndpoint || settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp'
+          events = await fetchCalDavEvents(endpoint, email, password, 60)
         } else {
           const token = getCalendarToken(account.id)
           if (!token) return []
@@ -96,7 +116,7 @@ export default function Calendar({ calendar, settings }: Props) {
 
   function handleGcalConnect(account: CalendarAccount | undefined) {
     if (!account) return
-    if (account.provider === 'mcp') { loadAllGcal(); return }
+    if (account.provider === 'mcp' || account.provider === 'caldav' || account.provider === 'ics') { loadAllGcal(); return }
     if (!account.clientId) { setGcalError('설정에서 Google Client ID를 먼저 입력해주세요.'); return }
     if (!googleReady) { setGcalError('Google API loading. Try again shortly.'); return }
     setConnecting(true)
@@ -172,7 +192,11 @@ export default function Calendar({ calendar, settings }: Props) {
                 <span className={`text-xs ${tokens[selectedAccount.id] ? 'text-green-600' : 'text-gray-400'}`}>
                   {tokens[selectedAccount.id] ? '연결됨' : '연결 안 됨'}
                 </span>
-                {tokens[selectedAccount.id] && selectedAccount.provider !== 'mcp' ? (
+                {(selectedAccount.provider === 'caldav' || selectedAccount.provider === 'ics' || selectedAccount.provider === 'mcp') ? (
+                  <button onClick={() => handleGcalConnect(selectedAccount)} disabled={gcalLoading} className="text-xs px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
+                    {gcalLoading ? '조회 중...' : selectedAccount.provider === 'ics' ? 'ICS 조회' : selectedAccount.provider === 'caldav' ? 'CalDAV 조회' : 'MCP 조회'}
+                  </button>
+                ) : tokens[selectedAccount.id] && selectedAccount.provider !== 'mcp' ? (
                   <button onClick={() => handleGcalDisconnect(selectedAccount)} className="text-xs text-red-500 hover:text-red-700">연결 해제</button>
                 ) : (
                   <button onClick={() => handleGcalConnect(selectedAccount)} disabled={connecting} className="text-xs px-2.5 py-1 bg-[#4285F4] hover:bg-[#3367d6] text-white rounded-lg disabled:opacity-50">

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { Note } from '@/types'
 
 const KEY = 'dash-notes'
@@ -13,28 +13,27 @@ export function useNotes() {
     localStorage.setItem(KEY, JSON.stringify(notes))
   }, [notes])
 
-  function create(title = '새 노트'): string {
+  const create = useCallback((title = '새 노트'): string => {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     setNotes(p => [{ id, title, content: '', tags: [], createdAt: now, updatedAt: now }, ...p])
     setActiveId(id)
     return id
-  }
+  }, [])
 
-  function update(id: string, patch: Partial<Note>) {
+  const update = useCallback((id: string, patch: Partial<Note>) => {
     setNotes(p => p.map(n => n.id === id
       ? { ...n, ...patch, updatedAt: new Date().toISOString() } : n
     ))
-  }
+  }, [])
 
-  function remove(id: string) {
-    setNotes(p => p.filter(n => n.id !== id))
-    setActiveId(current => {
-      if (current !== id) return current
-      const remaining = notes.filter(n => n.id !== id)
-      return remaining[0]?.id ?? null
+  const remove = useCallback((id: string) => {
+    setNotes(p => {
+      const remaining = p.filter(n => n.id !== id)
+      setActiveId(current => current === id ? (remaining[0]?.id ?? null) : current)
+      return remaining
     })
-  }
+  }, [])
 
   const activeNote = notes.find(n => n.id === activeId) ?? notes[0] ?? null
 

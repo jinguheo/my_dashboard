@@ -43,6 +43,13 @@ export default function Email({ settings, onNavigate }: Props) {
       loadEmails(selected, 'mcp')
       return
     }
+    if (selected.provider === 'naver' || selected.provider === 'imap') {
+      const hasCredentials = !!(selected.auth?.username && selected.auth?.password)
+      setToken(hasCredentials ? selected.provider : null)
+      setEmails([])
+      if (hasCredentials) loadEmails(selected, selected.provider)
+      return
+    }
     const nextToken = getStoredToken(selected.id)
     setToken(nextToken)
     setEmails([])
@@ -57,6 +64,18 @@ export default function Email({ settings, onNavigate }: Props) {
       if (account.provider === 'mcp') {
         if (!account.mcpEndpoint) throw new Error('MCP endpoint is required.')
         setEmails(await fetchInboxFromMcp(account.mcpEndpoint, account.inboxTool || 'mail.inbox', 25, account.auth, account.extraArgs))
+      } else if (account.provider === 'naver' || account.provider === 'imap') {
+        const endpoint = account.mcpEndpoint || settings.mcpEndpoint
+        if (!endpoint) throw new Error('MCP 브리지 엔드포인트를 설정해주세요.')
+        const imapArgs = {
+          host: account.imapHost || (account.provider === 'naver' ? 'imap.naver.com' : ''),
+          port: account.imapPort ?? 993,
+          ssl: account.imapSsl ?? true,
+          username: account.auth?.username,
+          password: account.auth?.password,
+          ...(account.extraArgs || {}),
+        }
+        setEmails(await fetchInboxFromMcp(endpoint, account.inboxTool || 'imap.inbox', 25, undefined, imapArgs))
       } else {
         setEmails(await fetchInbox(activeToken, 25, account.id))
       }
@@ -74,6 +93,12 @@ export default function Email({ settings, onNavigate }: Props) {
   function handleConnect() {
     if (!selected) return
     if (selected.provider === 'mcp') { loadEmails(selected, 'mcp'); return }
+    if (selected.provider === 'naver' || selected.provider === 'imap') {
+      if (!selected.auth?.username || !selected.auth?.password) { onNavigate('settings'); return }
+      setToken(selected.provider)
+      loadEmails(selected, selected.provider)
+      return
+    }
     if (!selected.clientId) { onNavigate('settings'); return }
     if (!googleReady) { setError('Google API loading. Try again shortly.'); return }
     setConnecting(true)
@@ -131,7 +156,11 @@ export default function Email({ settings, onNavigate }: Props) {
             </>
           ) : (
             <button onClick={handleConnect} disabled={connecting} className="text-xs px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white font-medium rounded-lg disabled:opacity-60">
-              {connecting ? '연결 중...' : selected?.provider === 'mcp' ? 'MCP 조회' : 'Gmail 연결'}
+              {connecting ? '연결 중...' :
+                selected?.provider === 'mcp' ? 'MCP 조회' :
+                selected?.provider === 'naver' ? 'Naver 조회' :
+                selected?.provider === 'imap' ? 'IMAP 조회' :
+                'Gmail 연결'}
             </button>
           )}
         </div>
@@ -140,7 +169,16 @@ export default function Email({ settings, onNavigate }: Props) {
       <div className="flex-1 overflow-auto">
         {error && <div className="m-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-500">{error}</div>}
         {!token ? (
-          <ConnectPrompt title={`${selected?.name || 'Gmail'} 연결`} body="이 계정의 Gmail 받은 편지함을 보려면 연결하세요." onNavigate={onNavigate} inline />
+          <ConnectPrompt
+            title={`${selected?.name || 'Gmail'} 연결`}
+            body={
+              selected?.provider === 'naver' || selected?.provider === 'imap'
+                ? '설정에서 아이디와 비밀번호를 입력한 후 다시 시도하세요.'
+                : '이 계정의 받은 편지함을 보려면 연결하세요.'
+            }
+            onNavigate={onNavigate}
+            inline
+          />
         ) : loading && emails.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-gray-400 text-sm">메일 로딩 중...</div>
         ) : emails.length === 0 ? (

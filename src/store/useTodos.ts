@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Todo, Priority } from '@/types'
+import { logActivity } from '@/services/activityLog'
 
 const KEY = 'dash-todos'
 
@@ -12,7 +13,7 @@ export function useTodos() {
     localStorage.setItem(KEY, JSON.stringify(todos))
   }, [todos])
 
-  function add(text: string, priority: Priority = 'medium', category = '일반', dueDate?: string) {
+  const add = useCallback((text: string, priority: Priority = 'medium', category = '일반', dueDate?: string) => {
     setTodos(p => [{
       id: crypto.randomUUID(),
       text: text.trim(),
@@ -22,33 +23,40 @@ export function useTodos() {
       dueDate,
       createdAt: new Date().toISOString(),
     }, ...p])
-  }
+  }, [])
 
-  function toggle(id: string) {
-    setTodos(p => p.map(t => t.id === id
-      ? { ...t, done: !t.done, completedAt: !t.done ? new Date().toISOString() : undefined }
-      : t
-    ))
-  }
+  const toggle = useCallback((id: string) => {
+    setTodos(p => p.map(t => {
+      if (t.id !== id) return t
+      if (!t.done) logActivity('todo-done', `할 일 완료: ${t.text.slice(0, 20)}`)
+      return { ...t, done: !t.done, completedAt: !t.done ? new Date().toISOString() : undefined }
+    }))
+  }, [])
 
-  function remove(id: string) {
+  const remove = useCallback((id: string) => {
     setTodos(p => p.filter(t => t.id !== id))
-  }
+  }, [])
 
-  function update(id: string, patch: Partial<Todo>) {
+  const update = useCallback((id: string, patch: Partial<Todo>) => {
     setTodos(p => p.map(t => t.id === id ? { ...t, ...patch } : t))
-  }
+  }, [])
 
   const todayStr = new Date().toDateString()
-  const completed = todos.filter(t => t.done)
+
+  const pending = useMemo(() => todos.filter(t => !t.done), [todos])
+  const completed = useMemo(() => todos.filter(t => t.done), [todos])
+  const completedToday = useMemo(
+    () => todos.filter(t => t.done && t.completedAt && new Date(t.completedAt).toDateString() === todayStr),
+    [todos, todayStr],
+  )
+  const highPriority = useMemo(() => todos.filter(t => !t.done && t.priority === 'high'), [todos])
+
   return {
     todos,
-    pending: todos.filter(t => !t.done),
+    pending,
     completed,
-    completedToday: todos.filter(t =>
-      t.done && t.completedAt && new Date(t.completedAt).toDateString() === todayStr
-    ),
-    highPriority: todos.filter(t => !t.done && t.priority === 'high'),
+    completedToday,
+    highPriority,
     doneCount: completed.length,
     total: todos.length,
     add, toggle, remove, update,

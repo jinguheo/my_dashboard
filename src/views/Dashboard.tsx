@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { usePanelOrder, type PanelId, PANEL_LABELS } from '@/store/usePanelOrder'
 import type { RefObject } from 'react'
-import type { AIMessage, View, Settings } from '@/types'
+import type { AIMessage, View, Settings, Todo } from '@/types'
 import type { TodoState } from '@/store/useTodos'
 import type { NoteState } from '@/store/useNotes'
 import type { CalendarState } from '@/store/useCalendar'
-import { fetchWeather, weatherEmoji, type WeatherData } from '@/services/weather'
+import { fetchWeather, fetchWeatherFree, fetchWeatherForecastFree, fetchWeatherFromMcp, fetchWeatherForecastFromMcp, weatherEmoji, type WeatherData, type WeatherForecast } from '@/services/weather'
 import { streamChat, briefingSystem, strategicSystem, buildBriefingMessage } from '@/services/claude'
+import { streamChatOpenAI } from '@/services/openai'
+import { streamClaudeWeb } from '@/services/claudeWeb'
 import {
   displaySymbol,
   fetchWatchlist,
@@ -15,6 +21,9 @@ import {
   type StockQuote,
 } from '@/services/stocks'
 import { useBookmarks } from '@/store/useBookmarks'
+import { useDailyLog, type DailyLogState } from '@/store/useDailyLog'
+import { logActivity } from '@/services/activityLog'
+import { useActivityLog } from '@/store/useActivityLog'
 
 interface Props {
   todos: TodoState
@@ -22,10 +31,97 @@ interface Props {
   calendar: CalendarState
   settings: Settings
   onNavigate: (v: View) => void
+  onUpdateSettings?: (patch: Partial<Settings>) => void
 }
 
 const PRIORITY_COLOR = { high: 'text-red-500', medium: 'text-amber-500', low: 'text-blue-500' }
 const PRIORITY_LABEL = { high: '높음', medium: '중간', low: '낮음' }
+
+const SPLITS = ['1fr_1fr', '3fr_2fr', '2fr_1fr', 'full'] as const
+type Split = typeof SPLITS[number]
+const SPLIT_CLASS: Record<Split, string> = {
+  '1fr_1fr': 'grid-cols-2',
+  '3fr_2fr': 'grid-cols-[3fr_2fr]',
+  '2fr_1fr': 'grid-cols-[2fr_1fr]',
+  'full':    'grid-cols-1',
+}
+const SPLIT_LABEL: Record<Split, string> = { '1fr_1fr': '1:1', '3fr_2fr': '3:2', '2fr_1fr': '2:1', 'full': '전체' }
+
+const STOCK_NAME_MAP: Record<string, string> = {
+  // 한국 주요 종목
+  '삼성전자': '005930.KS', '삼성': '005930.KS',
+  'sk하이닉스': '000660.KS', '하이닉스': '000660.KS',
+  '한미반도체': '042700.KS',
+  '카카오': '035720.KS',
+  '네이버': '035420.KS', 'naver': '035420.KS',
+  '현대차': '005380.KS', '현대자동차': '005380.KS',
+  '기아': '000270.KS', '기아차': '000270.KS',
+  'lg전자': '066570.KS',
+  '삼성sdi': '006400.KS',
+  'lg화학': '051910.KS',
+  '포스코': '005490.KS', 'posco': '005490.KS',
+  '셀트리온': '068270.KS',
+  'sk이노베이션': '096770.KS',
+  'db하이텍': '000990.KS',
+  '티씨케이': '091810.KS',
+  // 인덱스
+  '코스피': '^KS11', 'kospi': '^KS11',
+  '코스닥': '^KQ11', 'kosdaq': '^KQ11',
+  '나스닥': '^IXIC', 'nasdaq': '^IXIC',
+  's&p': '^GSPC', 's&p500': '^GSPC', 'sp500': '^GSPC',
+  '다우': '^DJI', '다우존스': '^DJI', 'dow': '^DJI',
+  // 미국 주요 종목
+  '애플': 'AAPL', 'apple': 'AAPL',
+  '마이크로소프트': 'MSFT', 'microsoft': 'MSFT',
+  '엔비디아': 'NVDA', 'nvidia': 'NVDA',
+  '아마존': 'AMZN', 'amazon': 'AMZN',
+  '구글': 'GOOGL', 'google': 'GOOGL', '알파벳': 'GOOGL',
+  '메타': 'META', 'meta': 'META', '페이스북': 'META',
+  '테슬라': 'TSLA', 'tesla': 'TSLA',
+  '알리바바': 'BABA', 'alibaba': 'BABA',
+  '넷플릭스': 'NFLX', 'netflix': 'NFLX',
+  '인텔': 'INTC', 'intel': 'INTC',
+  'amd': 'AMD',
+  'tsmc': 'TSM',
+  'asml': 'ASML',
+  // 원자재 선물
+  '금': 'GC=F', '금선물': 'GC=F', 'gold': 'GC=F',
+  '은': 'SI=F', '은선물': 'SI=F', 'silver': 'SI=F',
+  '원유': 'CL=F', '오일': 'CL=F', '유가': 'CL=F', 'oil': 'CL=F', 'crude': 'CL=F',
+  '천연가스': 'NG=F', 'gas': 'NG=F',
+  '구리': 'HG=F', 'copper': 'HG=F',
+  // 암호화폐
+  '비트코인': 'BTC-USD', 'bitcoin': 'BTC-USD', 'btc': 'BTC-USD',
+  '이더리움': 'ETH-USD', 'ethereum': 'ETH-USD', 'eth': 'ETH-USD',
+  // 미국 주요 ETF
+  '나스닥100': 'QQQ', 'qqq': 'QQQ',
+  'spy': 'SPY', 's&p500etf': 'SPY',
+  '아크': 'ARKK', 'arkk': 'ARKK', '아크이노베이션': 'ARKK',
+  '금etf': 'GLD', 'gld': 'GLD',
+  'dia': 'DIA', '다우etf': 'DIA',
+  'iwm': 'IWM', '러셀': 'IWM',
+  'vti': 'VTI',
+  'voo': 'VOO',
+  'schd': 'SCHD',
+  'soxl': 'SOXL', '반도체레버리지': 'SOXL',
+  'tqqq': 'TQQQ', '나스닥레버리지': 'TQQQ',
+  // 한국 주요 ETF
+  'kodex200': '069500.KS', '코덱스200': '069500.KS',
+  '코덱스레버리지': '122630.KS',
+  '코덱스인버스': '114800.KS',
+  '코덱스코스닥150': '229200.KS',
+}
+
+function resolveStockSymbol(input: string): string {
+  const key = input.trim().toLowerCase().replace(/\s+/g, '')
+  // 공백 제거 후 매핑 시도
+  if (STOCK_NAME_MAP[key]) return STOCK_NAME_MAP[key]
+  // 공백 포함 원문으로 매핑 시도
+  const keyWithSpace = input.trim().toLowerCase()
+  if (STOCK_NAME_MAP[keyWithSpace]) return STOCK_NAME_MAP[keyWithSpace]
+  // 매핑 없으면 대문자 심볼로 처리
+  return input.trim().toUpperCase()
+}
 
 function formatDate() {
   return new Date().toLocaleDateString('ko-KR', {
@@ -60,10 +156,32 @@ function openExternalUrl(url: string) {
   }
 }
 
-export default function Dashboard({ todos, notes, calendar, settings, onNavigate }: Props) {
-  const [weather, setWeather] = useState<WeatherData | null>(null)
+export default function Dashboard({ todos, notes, calendar, settings, onNavigate, onUpdateSettings }: Props) {
+  const [weathers, setWeathers] = useState<WeatherData[]>([])
+  const [forecast, setForecast] = useState<WeatherForecast[]>([])
   const [briefing, setBriefing] = useState(() => localStorage.getItem(`briefing-${new Date().toISOString().slice(0, 10)}`) || '')
   const [loadingBriefing, setLoadingBriefing] = useState(false)
+  type NewsItem = { title: string; url: string; points: number; comments: number; date: string; source: string; category?: string }
+  const [aiNews, setAiNews] = useState<NewsItem[]>([])
+  const [loadingNews, setLoadingNews] = useState(false)
+  const NEWS_CATS = ['전체', '논문', 'LLM', 'Business', 'GitHub/HuggingFace', '전반'] as const
+  const [newsCat, setNewsCat] = useState<string>('전체')
+  const [newsError, setNewsError] = useState('')
+
+  async function fetchAiNews() {
+    if (!settings.mcpEndpoint) return
+    setLoadingNews(true)
+    setNewsError('')
+    try {
+      const { callMcpTool } = await import('@/services/mcp')
+      const result = await callMcpTool<NewsItem[]>(settings.mcpEndpoint, 'news.ai', { maxResults: 15 })
+      setAiNews(Array.isArray(result) ? result : [])
+    } catch (e: any) {
+      setNewsError(e.message || '뉴스를 가져오지 못했습니다.')
+    } finally {
+      setLoadingNews(false)
+    }
+  }
   const [stocks, setStocks] = useState<StockQuote[]>([])
   const [stocksLoading, setStocksLoading] = useState(false)
   const [stockError, setStockError] = useState('')
@@ -73,8 +191,57 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [aiLoading, setAiLoading] = useState(false)
   const [shortcutUrl, setShortcutUrl] = useState('')
   const [shortcutError, setShortcutError] = useState('')
+  const [stockInput, setStockInput] = useState('')
+  const [showStockInput, setShowStockInput] = useState(false)
+
+  function handleAddStock(e: React.FormEvent) {
+    e.preventDefault()
+    const sym = resolveStockSymbol(stockInput)
+    if (!sym) return
+    const current = (settings.stockSymbols || '').split(',').map(s => s.trim()).filter(Boolean)
+    if (!current.includes(sym)) {
+      onUpdateSettings?.({ stockSymbols: [...current, sym].join(', ') })
+    }
+    setStockInput('')
+    setShowStockInput(false)
+  }
+  const [editMode, setEditMode] = useState(false)
+  const { order, reorder } = usePanelOrder()
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      const oldIdx = order.indexOf(active.id as PanelId)
+      const newIdx = order.indexOf(over.id as PanelId)
+      reorder(arrayMove(order, oldIdx, newIdx))
+    }
+  }
+  const [splitPct, setSplitPct] = useState<number>(() => Number(localStorage.getItem('dash-split-pct') || '50'))
+  const [showAi, setShowAi] = useState<boolean>(() => localStorage.getItem('dash-show-ai') !== 'false')
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isDragging = useRef(false)
   const aiBottomRef = useRef<HTMLDivElement>(null)
-  const { bookmarks, add: addBookmark, remove: removeBookmark } = useBookmarks()
+
+  function handleDividerMouseDown(e: React.MouseEvent) {
+    e.preventDefault()
+    isDragging.current = true
+    function onMove(ev: MouseEvent) {
+      if (!isDragging.current || !containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const pct = Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100))
+      setSplitPct(pct)
+      localStorage.setItem('dash-split-pct', String(pct))
+    }
+    function onUp() {
+      isDragging.current = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+  const { bookmarks, add: addBookmark, remove: removeBookmark, click: clickBookmark } = useBookmarks()
+  const dailyLog = useDailyLog()
 
   const symbols = useMemo(() => parseSymbols(settings.stockSymbols || ''), [settings.stockSymbols])
   const routine = useMemo(
@@ -89,27 +256,98 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   }, [aiMessages])
 
   useEffect(() => {
-    if (settings.weatherApiKey && settings.city) {
-      fetchWeather(settings.city, settings.weatherApiKey)
-        .then(setWeather)
-        .catch(() => {})
+    const cities = (settings.weatherCities || settings.city || '화성')
+      .split(',').map(s => s.trim()).filter(Boolean)
+    if (!cities.length) return
+
+    async function fetchOne(city: string): Promise<WeatherData | null> {
+      if (settings.dataAccessMode === 'mcp' && settings.mcpEndpoint) {
+        try { return await fetchWeatherFromMcp(settings.mcpEndpoint, city) } catch {}
+      }
+      if (settings.weatherApiKey) {
+        try { return await fetchWeather(city, settings.weatherApiKey) } catch {}
+      }
+      // API Key 없어도 wttr.in으로 무료 조회
+      try { return await fetchWeatherFree(city) } catch {}
+      return null
     }
-  }, [settings.weatherApiKey, settings.city])
+
+    Promise.all(cities.map(fetchOne)).then(results => {
+      setWeathers(results.filter((w): w is WeatherData => w !== null))
+    })
+
+    // 첫 번째 도시 기준 예보 (MCP → wttr.in 무료 순으로 시도)
+    if (settings.dataAccessMode === 'mcp' && settings.mcpEndpoint) {
+      fetchWeatherForecastFromMcp(settings.mcpEndpoint, cities[0])
+        .then(setForecast)
+        .catch(() => fetchWeatherForecastFree(cities[0]).then(setForecast).catch(() => {}))
+    } else {
+      fetchWeatherForecastFree(cities[0]).then(setForecast).catch(() => {})
+    }
+  }, [settings.mcpEndpoint, settings.weatherApiKey, settings.weatherCities, settings.city])
 
   useEffect(() => {
-    if (settings.dataAccessMode === 'api-key' && settings.finnhubApiKey && symbols.length) {
-      loadStocksViaApiKey()
+    if (!symbols.length) return
+
+    async function autoLoad() {
+      setStocksLoading(true)
+      setStockError('')
+
+      // MCP 서버 먼저 시도 (stock_mcp_server.py)
+      if (settings.mcpEndpoint) {
+        setStockSource('mcp')
+        try {
+          const data = await fetchWatchlistFromMcp(settings.mcpEndpoint, symbols)
+          if (data.length) {
+            setStocks(data)
+            setStocksLoading(false)
+            logActivity('stock', '주가 확인')
+            return
+          }
+        } catch {}
+      }
+
+      // MCP 실패 시 Finnhub API Key로 fallback
+      if (settings.finnhubApiKey) {
+        setStockSource('api-key')
+        try {
+          const data = await fetchWatchlist(symbols, settings.finnhubApiKey)
+          setStocks(data)
+          if (!data.length) setStockError('가져온 주식 정보가 없습니다.')
+          else logActivity('stock', '주가 확인')
+        } catch (err) {
+          setStockError(err instanceof Error ? err.message : '주식 정보를 가져오지 못했습니다.')
+        }
+      } else {
+        setStockError('stock_mcp_server.py를 실행하거나 설정에서 Finnhub API 키를 입력하세요.')
+      }
+
+      setStocksLoading(false)
     }
-    if (settings.dataAccessMode === 'mcp' && settings.mcpEndpoint && symbols.length) {
-      loadStocksViaMcp()
+
+    autoLoad()
+  }, [settings.finnhubApiKey, settings.mcpEndpoint, settings.stockSymbols])
+
+  const hasAiKey = !!(settings.anthropicApiKey || settings.claudeSessionKey || settings.openaiApiKey || settings.customAiEndpoint)
+  const aiProvider = settings.aiProvider ?? 'claude'
+
+  async function callDashboardStream(
+    msgs: Array<{ role: 'user' | 'assistant'; content: string }>,
+    system: string,
+    onDelta: (t: string) => void,
+  ) {
+    if (aiProvider === 'claude-web') {
+      return streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint, msgs, system, onDelta)
+    } else if (aiProvider === 'chatgpt') {
+      return streamChatOpenAI(settings.openaiApiKey, 'https://api.openai.com/v1', 'gpt-4o', msgs, system, onDelta)
+    } else if (aiProvider === 'custom') {
+      return streamChatOpenAI('', settings.customAiEndpoint, settings.customAiModel || 'gpt-4o', msgs, system, onDelta)
     }
-  }, [settings.dataAccessMode, settings.finnhubApiKey, settings.mcpEndpoint, symbols.join('|')])
+    return streamChat(settings.anthropicApiKey, msgs, system, onDelta)
+  }
 
   async function generateBriefing() {
-    if (!settings.anthropicApiKey) {
-      onNavigate('settings')
-      return
-    }
+    if (!hasAiKey) { onNavigate('settings'); return }
     setLoadingBriefing(true)
     setBriefing('')
     const msg = buildBriefingMessage({
@@ -119,13 +357,20 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       upcomingEvents: upcoming.map(e => `${e.date} ${e.title}`),
       recentNotes: notes.notes.slice(0, 3).map(n => n.title),
     })
-    let result = ''
-    await streamChat(settings.anthropicApiKey, [{ role: 'user', content: msg }], briefingSystem(settings.userName), (delta) => {
-      result += delta
-      setBriefing(result)
-    })
-    localStorage.setItem(`briefing-${new Date().toISOString().slice(0, 10)}`, result)
-    setLoadingBriefing(false)
+    try {
+      let result = ''
+      await callDashboardStream([{ role: 'user', content: msg }], briefingSystem(settings.userName), (delta) => {
+        result += delta
+        setBriefing(result)
+      })
+      localStorage.setItem(`briefing-${new Date().toISOString().slice(0, 10)}`, result)
+      logActivity('briefing', 'AI 브리핑 생성')
+    } catch (e: any) {
+      const errMsg = e?.error?.message || e?.message || String(e)
+      setBriefing(`오류: ${errMsg}`)
+    } finally {
+      setLoadingBriefing(false)
+    }
   }
 
   function buildAiContext(): string {
@@ -150,13 +395,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   async function sendAiQuestion(question?: string) {
     const content = (question ?? aiInput).trim()
     if (!content || aiLoading) return
-    if (!settings.anthropicApiKey) {
-      onNavigate('settings')
-      return
-    }
+    if (!hasAiKey) { onNavigate('settings'); return }
 
     setAiInput('')
     setAiLoading(true)
+    logActivity('ai-chat', 'AI 어시스턴트 대화')
 
     const userMessage: AIMessage = { role: 'user', content, timestamp: new Date().toISOString() }
     const assistantMessage: AIMessage = { role: 'assistant', content: '', timestamp: new Date().toISOString() }
@@ -167,14 +410,18 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     const history = nextMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
 
     try {
-      await streamChat(
-        settings.anthropicApiKey,
-        history,
+      await callDashboardStream(
+        history as Array<{ role: 'user' | 'assistant'; content: string }>,
         `${strategicSystem(settings.userName)}\n\n${buildAiContext()}`,
         (delta) => {
           setAiMessages(p => p.map((m, i) => i === answerIndex ? { ...m, content: m.content + delta } : m))
         },
       )
+    } catch (e: any) {
+      const errMsg = e?.error?.message || e?.message || String(e)
+      setAiMessages(p => p.map((m, i) =>
+        i === answerIndex ? { ...m, content: `오류: ${errMsg}` } : m
+      ))
     } finally {
       setAiLoading(false)
     }
@@ -211,6 +458,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       const data = await loader()
       setStocks(data)
       if (!data.length) setStockError('가져온 주식 정보가 없습니다.')
+      else logActivity('stock', '주가 확인')
     } catch (err) {
       setStockError(err instanceof Error ? err.message : '주식 정보를 가져오지 못했습니다.')
     } finally {
@@ -238,7 +486,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           <h1 className="text-2xl font-bold text-gray-900">안녕하세요, {settings.userName}님</h1>
           <p className="text-gray-500 text-sm mt-0.5">{formatDate()}</p>
         </div>
-        <div className="flex gap-3 text-sm">
+        <div className="flex gap-2 text-sm items-center">
           <button onClick={() => onNavigate('todos')} className="px-3 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-700 hover:bg-surface-hover transition-colors">
             할 일 관리
           </button>
@@ -248,52 +496,162 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           <button onClick={() => onNavigate('ai')} className="px-3 py-1.5 bg-gray-900 rounded-lg text-white hover:bg-gray-700 transition-colors">
             AI 브리핑
           </button>
+          <button
+            onClick={() => { setShowAi(v => { localStorage.setItem('dash-show-ai', String(!v)); return !v }) }}
+            title="AI 패널 토글"
+            className="px-2.5 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-500 hover:bg-surface-hover transition-colors text-xs"
+          >
+            {showAi ? 'AI 숨기기' : 'AI 보기'}
+          </button>
+          <button
+            onClick={() => setEditMode(v => !v)}
+            className={`px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${editMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-surface border-surface-border text-gray-500 hover:bg-surface-hover'}`}
+          >
+            {editMode ? '완료' : '배치 편집'}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
-        <div className="space-y-5 min-w-0">
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard
-          label="남은 할 일"
-          value={todos.pending.length}
-          sub={`오늘 완료 ${todos.completedToday.length}개`}
-          color="text-blue-500"
+      <div ref={containerRef} className="flex gap-0 items-start min-h-0" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
+        <div className="space-y-5 min-w-0 overflow-hidden" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
+      <div className="grid grid-cols-3 gap-4 items-start">
+        {/* 남은 할 일 — 숫자 + 목록 통합 */}
+        <div
           onClick={() => onNavigate('todos')}
-        />
-        <StatCard
-          label="높은 우선순위"
-          value={todos.highPriority.length}
-          sub="먼저 확인할 일"
-          color="text-red-500"
+          className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
+        >
+          <p className="text-xs text-gray-500 mb-1">남은 할 일</p>
+          <p className="text-3xl font-bold text-blue-500">{todos.pending.length}</p>
+          {todos.pending.length > 0 ? (
+            <ul className="mt-2 space-y-1">
+              {todos.pending.slice(0, 3).map(t => (
+                <li key={t.id} className="flex items-center gap-1.5 text-xs text-gray-700 min-w-0">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    t.priority === 'high' ? 'bg-red-400' : t.priority === 'medium' ? 'bg-amber-400' : 'bg-blue-400'
+                  }`} />
+                  <span className="truncate">{t.text}</span>
+                </li>
+              ))}
+              {todos.pending.length > 3 && (
+                <li className="text-xs text-gray-400">+{todos.pending.length - 3}개 더</li>
+              )}
+            </ul>
+          ) : (
+            <p className="text-xs text-gray-400 mt-1">오늘 완료 {todos.completedToday.length}개</p>
+          )}
+        </div>
+        {/* 높은 우선순위 — 숫자 + 목록 통합 */}
+        <div
           onClick={() => onNavigate('todos')}
-        />
-        <StatCard
-          label="노트"
-          value={notes.notes.length}
-          sub={notes.notes[0] ? `최근: ${relativeTime(notes.notes[0].updatedAt)}` : '작성한 노트 없음'}
-          color="text-purple-500"
-          onClick={() => onNavigate('notes')}
-        />
-        {weather ? (
-          <div className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors">
-            <div className="text-3xl mb-1">{weatherEmoji(weather.icon)}</div>
-            <div className="text-2xl font-bold text-gray-900">{weather.temp}°C</div>
-            <div className="text-xs text-gray-500 mt-0.5">{weather.city} · {weather.description}</div>
-            <div className="text-xs text-gray-400 mt-1">체감 {weather.feelsLike}°C · 습도 {weather.humidity}%</div>
+          className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
+        >
+          <p className="text-xs text-gray-500 mb-1">높은 우선순위</p>
+          <p className="text-3xl font-bold text-red-500">{todos.highPriority.length}</p>
+          {todos.highPriority.length > 0 ? (
+            <ul className="mt-2 space-y-1">
+              {todos.highPriority.slice(0, 3).map(t => (
+                <li key={t.id} className="flex items-center gap-1.5 text-xs text-gray-700 min-w-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                  <span className="truncate">{t.text}</span>
+                </li>
+              ))}
+              {todos.highPriority.length > 3 && (
+                <li className="text-xs text-gray-400">+{todos.highPriority.length - 3}개 더</li>
+              )}
+            </ul>
+          ) : (
+            <p className="text-xs text-gray-400 mt-1">먼저 확인할 일 없음</p>
+          )}
+        </div>
+        {/* 오늘 현황 — 우선순위 바 + 진행률 */}
+        <div className="bg-surface border border-surface-border rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-2">오늘 현황</p>
+          <div className="space-y-1.5">
+            {(['high', 'medium', 'low'] as const).map(p => {
+              const count = todos.pending.filter(t => t.priority === p).length
+              return (
+                <div key={p} className="flex items-center gap-2">
+                  <span className={`text-xs w-6 shrink-0 ${PRIORITY_COLOR[p]}`}>{PRIORITY_LABEL[p]}</span>
+                  <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{
+                      width: todos.pending.length ? `${(count / todos.pending.length) * 100}%` : '0%',
+                      background: p === 'high' ? '#ef4444' : p === 'medium' ? '#f59e0b' : '#3b82f6',
+                    }} />
+                  </div>
+                  <span className="text-xs text-gray-500 w-4 text-right shrink-0">{count}</span>
+                </div>
+              )
+            })}
           </div>
-        ) : (
-          <StatCard
-            label="날씨"
-            value="-"
-            sub={settings.weatherApiKey ? '로딩 중...' : '설정에서 API 키 입력'}
-            color="text-gray-400"
-            setupRequired={!settings.weatherApiKey}
-            onClick={() => onNavigate('settings')}
-          />
-        )}
+          <div className="pt-2 mt-2 border-t border-surface-border flex justify-between text-xs text-gray-500">
+            <span>전체 진행률</span>
+            <span className="font-medium text-gray-700">
+              {todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}
+            </span>
+          </div>
+          <div className="mt-1 w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-full bg-gray-800 rounded-full transition-all"
+              style={{ width: todos.todos.length > 0 ? `${(todos.completed.length / todos.todos.length) * 100}%` : '0%' }} />
+          </div>
+        </div>
       </div>
 
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={order} strategy={verticalListSortingStrategy}>
+      {order.map(panelId => {
+        if (panelId === 'weather') return (
+        <SortablePanelWrapper key="weather" id="weather" label="날씨" editMode={editMode}>
+      {/* 날씨 + 7일 예보 — 한 줄 */}
+      {weathers.length > 0 ? (
+        <div className="bg-surface border border-surface-border rounded-xl flex items-stretch divide-x divide-surface-border overflow-hidden">
+          {/* 도시별 날씨 */}
+          {weathers.map(w => (
+            <div key={w.city} className="flex items-center gap-2 px-3 py-2 min-w-0 shrink-0">
+              <span className="text-lg shrink-0">{weatherEmoji(w.icon)}</span>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-sm font-bold text-gray-900">{w.temp}°</span>
+                  <span className="text-[11px] text-gray-500 truncate">{w.city}</span>
+                </div>
+                <div className="text-[10px] text-gray-400 truncate">{w.description} · 습도 {w.humidity}%</div>
+              </div>
+            </div>
+          ))}
+          {/* 예보 */}
+          {forecast.length > 0 && forecast.map((day, i) => {
+            const d = new Date(day.date + 'T00:00:00')
+            const todayMs = new Date().setHours(0, 0, 0, 0)
+            const diff = Math.round((d.getTime() - todayMs) / 86400000)
+            const label = diff === 0 ? '오늘' : diff === 1 ? '내일' : diff === 2 ? '모레'
+              : d.toLocaleDateString('ko-KR', { weekday: 'short' })
+            return (
+              <div key={day.date} className={`flex-1 flex flex-col items-center justify-center gap-0.5 px-1 py-2 ${i === 0 ? 'text-gray-700' : 'text-gray-400'}`}>
+                <span className="text-[10px] font-medium">{label}</span>
+                <span className="text-xs">{weatherEmoji(day.icon)}</span>
+                <div className="flex gap-0.5 text-[10px]">
+                  <span className="font-semibold text-gray-600">{day.maxTemp}°</span>
+                  <span className="text-gray-400">{day.minTemp}°</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div
+          onClick={() => onNavigate('settings')}
+          className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors flex items-center gap-3 text-gray-400"
+        >
+          <span className="text-2xl">🌤️</span>
+          <div>
+            <p className="text-sm font-medium">날씨 설정 필요</p>
+            <p className="text-xs mt-0.5">설정 → 날씨 도시에 도시명을 입력하고 MCP 서버를 실행하세요.</p>
+          </div>
+        </div>
+      )}
+      </SortablePanelWrapper>
+        )
+        if (panelId === 'shortcuts') return (
+        <SortablePanelWrapper key="shortcuts" id="shortcuts" label="바로가기" editMode={editMode}>
       <Panel title="빠른 바로가기" className="!space-y-3">
         <form onSubmit={handleAddShortcut} className="flex gap-2">
           <input
@@ -314,31 +672,29 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           </button>
         </form>
         {shortcutError && <p className="text-xs text-red-500">{shortcutError}</p>}
-        <div className="grid grid-cols-5 gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {bookmarks.map(link => (
             <div
               key={link.id}
-              className="group relative rounded-xl bg-surface border border-surface-border text-xs text-gray-700 hover:bg-surface-hover hover:text-gray-900 transition-colors"
+              className="group relative rounded-lg bg-surface border border-surface-border text-xs text-gray-700 hover:bg-surface-hover hover:text-gray-900 transition-colors"
             >
               <button
-                onClick={() => openExternalUrl(link.url)}
-                className="flex w-full flex-col items-center gap-2 px-2 py-3"
+                onClick={() => { clickBookmark(link.id); openExternalUrl(link.url) }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5"
                 title={link.title}
               >
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 group-hover:bg-gray-200">
-                  <img
-                    src={link.favicon}
-                    alt=""
-                    className="h-6 w-6 rounded"
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                </span>
-                <span className="max-w-full truncate">{link.title}</span>
+                <img
+                  src={link.favicon}
+                  alt=""
+                  className="h-4 w-4 rounded shrink-0"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+                <span className="truncate max-w-[80px]">{link.title}</span>
               </button>
               <button
                 onClick={() => removeBookmark(link.id)}
-                className="absolute right-1.5 top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:text-red-500 group-hover:flex"
-                title="바로가기 삭제"
+                className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-gray-300 text-[10px] text-gray-600 hover:text-red-500 group-hover:flex"
+                title="삭제"
               >
                 ×
               </button>
@@ -346,204 +702,368 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           ))}
         </div>
       </Panel>
-
-      <div className="grid grid-cols-3 gap-4">
-        <Panel title="매일 하는 일" actionLabel="할 일 보기" onAction={() => onNavigate('todos')}>
-          {routine.length === 0 && todayTodos.length === 0 ? (
-            <EmptyText>설정에서 매일 하는 일을 추가하거나 오늘 마감 할 일을 등록하세요.</EmptyText>
-          ) : (
-            <div className="space-y-3">
-              {routine.length > 0 && (
-                <ul className="space-y-2">
-                  {routine.slice(0, 6).map((item, idx) => (
-                    <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm text-gray-700">
-                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />
-                      <span className="line-clamp-1">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {todayTodos.length > 0 && (
-                <div className="pt-3 border-t border-surface-border space-y-2">
-                  <p className="text-xs text-gray-400">오늘 마감</p>
-                  {todayTodos.map(t => (
-                    <button key={t.id} onClick={() => todos.toggle(t.id)} className="flex w-full items-center gap-2 text-left text-sm text-gray-700 hover:text-gray-900">
-                      <span className="h-4 w-4 rounded border border-surface-border shrink-0" />
-                      <span className="line-clamp-1">{t.text}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="주식 정보" className="col-span-2" actionLabel="설정" onAction={() => onNavigate('settings')}>
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            <button
-              onClick={loadStocksViaApiKey}
-              disabled={stocksLoading}
-              className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-700 disabled:opacity-50"
-            >
-              API_KEY로 가져오기
+      </SortablePanelWrapper>
+        )
+        if (panelId === 'stocks') return (
+        <SortablePanelWrapper key="stocks" id="stocks" label="주식" editMode={editMode}>
+      {/* 주식 패널 — 3열 그리드 */}
+      <div className="bg-white border border-surface-border rounded-xl p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-gray-700">주식</span>
+          <span className="text-[11px] text-gray-400">
+            {stocks.length > 0 && symbols.length > 0 && stocks.length < symbols.length
+              ? `${stocks.length}/${symbols.length} 로드됨`
+              : stocks.length > 0 ? `${stocks.length}개` : ''}
+          </span>
+          {stockError && <span className="text-[11px] text-red-500">{stockError}</span>}
+          <div className="flex gap-1 ml-auto items-center">
+            {showStockInput ? (
+              <form onSubmit={handleAddStock} className="flex gap-1 items-center">
+                <input
+                  type="text"
+                  value={stockInput}
+                  onChange={e => setStockInput(e.target.value)}
+                  placeholder="삼성전자, 테슬라, AAPL"
+                  autoFocus
+                  className="w-28 px-2 py-0.5 text-[11px] border border-gray-300 rounded outline-none focus:ring-1 focus:ring-gray-400"
+                />
+                <button type="submit" className="px-2 py-0.5 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700">추가</button>
+                <button type="button" onClick={() => setShowStockInput(false)} className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[11px]">✕</button>
+              </form>
+            ) : (
+              <button onClick={() => setShowStockInput(true)} className="px-2 py-0.5 rounded bg-gray-100 text-gray-500 text-[11px] hover:bg-gray-200" title="종목 추가">+</button>
+            )}
+            <button onClick={loadStocksViaMcp} disabled={stocksLoading}
+              className="px-2 py-0.5 rounded bg-gray-100 text-gray-500 text-[11px] hover:bg-gray-200 disabled:opacity-40">
+              {stocksLoading ? '...' : 'MCP'}
             </button>
-            <button
-              onClick={loadStocksViaMcp}
-              disabled={stocksLoading}
-              className="px-3 py-1.5 rounded-lg bg-surface border border-surface-border text-gray-700 text-xs font-medium hover:bg-surface-hover disabled:opacity-50"
-            >
-              MCP로 가져오기
-            </button>
-            <span className="text-xs text-gray-400">
-              {stockSource ? `최근 연결: ${stockSource === 'api-key' ? 'API_KEY' : 'MCP'}` : '관심 종목을 설정하고 가져오세요'}
-            </span>
-          </div>
-          {stockError && <p className="mb-3 text-xs text-red-500">{stockError}</p>}
-          {stocks.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2">
-              {stocks.slice(0, 6).map(q => (
-                <div key={q.symbol} className="bg-surface border border-surface-border rounded-lg p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-gray-900">{displaySymbol(q.symbol)}</span>
-                    <span className={`text-xs ${q.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmtChange(q)}</span>
-                  </div>
-                  <div className="mt-1 text-lg font-bold text-gray-800">{fmtPrice(q)}</div>
-                  <div className="mt-1 text-[10px] text-gray-400">고가 {fmtPrice({ ...q, price: q.high })} · 저가 {fmtPrice({ ...q, price: q.low })}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <SetupText>{stocksLoading ? '주식 정보를 가져오는 중입니다...' : 'Finnhub API 키 또는 MCP 브리지를 연결하면 관심 종목이 표시됩니다.'}</SetupText>
-          )}
-        </Panel>
-
-        <Panel title="높은 우선순위" actionLabel="전체 보기" onAction={() => onNavigate('todos')}>
-          {todos.highPriority.length === 0 ? (
-            <EmptyText>높은 우선순위 할 일이 없습니다.</EmptyText>
-          ) : (
-            <ul className="space-y-2">
-              {todos.highPriority.slice(0, 5).map(t => (
-                <li key={t.id} className="flex items-start gap-2">
-                  <button
-                    onClick={() => todos.toggle(t.id)}
-                    className="mt-0.5 w-4 h-4 rounded border border-red-300 shrink-0 hover:bg-red-50 transition-colors"
-                  />
-                  <div className="min-w-0">
-                    <span className="text-sm text-gray-800 line-clamp-1">{t.text}</span>
-                    {t.dueDate && <span className="text-xs text-red-500">마감: {t.dueDate}</span>}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel title="AI 브리핑">
-          <div className="flex items-center justify-end -mt-8 mb-2">
-            <button
-              onClick={generateBriefing}
-              disabled={loadingBriefing}
-              className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50"
-            >
-              {loadingBriefing ? '생성 중...' : '생성'}
+            <button onClick={loadStocksViaApiKey} disabled={stocksLoading}
+              className="px-2 py-0.5 rounded bg-gray-100 text-gray-500 text-[11px] hover:bg-gray-200 disabled:opacity-40">
+              API
             </button>
           </div>
-          {briefing ? (
-            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{briefing}</p>
-          ) : (
-            settings.anthropicApiKey
-              ? <EmptyText>생성 버튼을 눌러 오늘의 브리핑을 받아보세요.</EmptyText>
-              : <SetupText>설정에서 Anthropic API 키를 입력하세요.</SetupText>
-          )}
-        </Panel>
-
-        <Panel title="다가오는 일정" actionLabel="캘린더" onAction={() => onNavigate('calendar')}>
-          {upcoming.length === 0 ? (
-            <EmptyText>7일 내 일정이 없습니다.</EmptyText>
-          ) : (
-            <ul className="space-y-2">
-              {upcoming.slice(0, 5).map(e => (
-                <li key={e.id} className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.color }} />
-                  <div className="min-w-0">
-                    <p className="text-sm text-gray-800 line-clamp-1">{e.title}</p>
-                    <p className="text-xs text-gray-500">{e.date}{e.time ? ` ${e.time}` : ''}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel title="최근 노트" className="col-span-2" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
-          {notes.notes.length === 0 ? (
-            <EmptyText>작성한 노트가 없습니다.</EmptyText>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {notes.notes.slice(0, 4).map(n => (
-                <div key={n.id} className="bg-surface border border-surface-border rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer" onClick={() => onNavigate('notes')}>
-                  <p className="text-sm font-medium text-gray-800 line-clamp-1">{n.title}</p>
-                  <p className="text-xs text-gray-500 line-clamp-2 mt-1">{n.content || '(내용 없음)'}</p>
-                  <p className="text-[10px] text-gray-400 mt-2">{relativeTime(n.updatedAt)}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="오늘 현황">
-          <div className="space-y-2">
-            {(['high', 'medium', 'low'] as const).map(p => {
-              const count = todos.pending.filter(t => t.priority === p).length
-              return (
-                <div key={p} className="flex items-center justify-between">
-                  <span className={`text-xs ${PRIORITY_COLOR[p]}`}>{PRIORITY_LABEL[p]}</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: todos.pending.length ? `${(count / todos.pending.length) * 100}%` : '0%',
-                          background: p === 'high' ? '#ef4444' : p === 'medium' ? '#f59e0b' : '#3b82f6',
-                        }}
-                      />
-                    </div>
-                    <span className="text-xs text-gray-500 w-4 text-right">{count}</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <div className="pt-2 mt-3 border-t border-surface-border">
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>전체 진행률</span>
-              <span>{todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}</span>
-            </div>
-            <div className="mt-1 w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gray-800 rounded-full transition-all"
-                style={{ width: todos.todos.length > 0 ? `${(todos.completed.length / todos.todos.length) * 100}%` : '0%' }}
-              />
+        </div>
+        {stocks.length > 0 ? (
+          <div className="overflow-y-auto" style={{ maxHeight: '234px' }}>
+            <div className="grid grid-cols-4 gap-1.5">
+            {stocks.map(q => (
+              <div key={q.symbol} className="bg-surface border border-surface-border rounded-lg px-2 py-2 min-w-0">
+                <div className="text-[11px] font-semibold text-gray-700 truncate leading-tight">{displaySymbol(q)}</div>
+                <div className="text-sm font-bold text-gray-900 mt-0.5">{fmtPrice(q)}</div>
+                <div className={`text-[10px] mt-0.5 ${q.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmtChange(q)}</div>
+              </div>
+            ))}
             </div>
           </div>
-        </Panel>
+        ) : (
+          <p className="text-[11px] text-gray-400">{stocksLoading ? '불러오는 중...' : 'MCP 또는 API 버튼으로 시세를 가져오세요.'}</p>
+        )}
       </div>
+      </SortablePanelWrapper>
+        )
+        if (panelId === 'grid') return (
+        <SortablePanelWrapper key="grid" id="grid" label="할 일/브리핑/일정/노트" editMode={editMode}>
+      <div className="grid grid-cols-3 gap-4 items-stretch">
+        {/* 왼쪽 열: 매일 하는 일 + 다가오는 일정 + 최근 노트 */}
+        <div className="flex flex-col gap-4">
+          <DailyRoutinePanel
+            routine={routine}
+            todayTodos={todayTodos}
+            dailyLog={dailyLog}
+            onToggleTodo={todos.toggle}
+            onNavigate={onNavigate}
+            upcoming={[]}
+          />
+          <Panel title="다가오는 일정" actionLabel="캘린더" onAction={() => onNavigate('calendar')}>
+            {upcoming.length === 0 ? (
+              <EmptyText>7일 내 일정이 없습니다.</EmptyText>
+            ) : (
+              <ul className="space-y-2">
+                {upcoming.slice(0, 5).map(e => (
+                  <li key={e.id} className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.color }} />
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-800 line-clamp-1">{e.title}</p>
+                      <p className="text-xs text-gray-500">{e.date}{e.time ? ` ${e.time}` : ''}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+          <Panel title={`최근 노트 ${notes.notes.length > 0 ? `(${notes.notes.length})` : ''}`} className="flex-1" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
+            {notes.notes.length === 0 ? (
+              <EmptyText>작성한 노트가 없습니다.</EmptyText>
+            ) : (
+              <ul className="space-y-2">
+                {notes.notes.slice(0, 5).map(n => (
+                  <li key={n.id} className="bg-surface border border-surface-border rounded-lg p-2.5 hover:bg-surface-hover cursor-pointer" onClick={() => onNavigate('notes')}>
+                    <p className="text-xs font-medium text-gray-800 line-clamp-1">{n.title}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{relativeTime(n.updatedAt)}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
         </div>
 
-        <DashboardAiPanel
-          messages={aiMessages}
-          input={aiInput}
-          loading={aiLoading}
-          hasApiKey={!!settings.anthropicApiKey}
-          bottomRef={aiBottomRef}
-          onInput={setAiInput}
-          onSend={() => sendAiQuestion()}
-          onClear={() => setAiMessages([])}
-          onNavigateSettings={() => onNavigate('settings')}
-          onPrompt={sendAiQuestion}
-        />
+        <Panel title="AI 뉴스" className="col-span-2">
+          {/* 헤더: 탭 + 새로고침 */}
+          <div className="flex items-center gap-1 -mt-8 mb-3 flex-wrap">
+            <div className="flex gap-0.5 flex-1 flex-wrap">
+              {NEWS_CATS.map(cat => (
+                <button key={cat} onClick={() => setNewsCat(cat)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    newsCat === cat ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}>
+                  {cat}
+                  {cat !== '전체' && aiNews.length > 0 && (
+                    <span className="ml-1 opacity-60">{aiNews.filter(n => n.category === cat).length}</span>
+                  )}
+                  {cat === '전체' && aiNews.length > 0 && (
+                    <span className="ml-1 opacity-60">{aiNews.length}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <button onClick={fetchAiNews} disabled={loadingNews}
+              className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 shrink-0">
+              {loadingNews ? '...' : '새로고침'}
+            </button>
+          </div>
+          {newsError && <p className="text-xs text-red-500 mb-2">{newsError}</p>}
+          {aiNews.length > 0 ? (
+            <ul className="space-y-1 overflow-y-auto" style={{ maxHeight: '400px' }}>
+              {aiNews
+                .filter(n => newsCat === '전체' || n.category === newsCat)
+                .map((n, i) => (
+                <li key={i}>
+                  <a
+                    href={n.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => { logActivity('ai', `AI 뉴스 읽음: ${n.title}`); openExternalUrl(n.url) }}
+                    className="flex items-start gap-2 group hover:bg-surface-hover rounded-lg px-1.5 py-1.5 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">{n.category || '전반'}</span>
+                        <span className="text-[10px] text-gray-300 shrink-0">{n.source}</span>
+                      </div>
+                      <p className="text-xs text-gray-800 group-hover:text-blue-600 leading-snug line-clamp-2">{n.title}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">▲{n.points} · 💬{n.comments} · {n.date}</p>
+                    </div>
+                    <span className="text-gray-300 group-hover:text-blue-400 text-xs shrink-0 mt-1">↗</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-center py-4">
+              <EmptyText>새로고침 버튼으로 AI 최신 뉴스를 가져오세요.</EmptyText>
+              <p className="text-[10px] text-gray-400 mt-1">Reddit ML·LLM · HuggingFace Papers · 트렌딩 모델</p>
+            </div>
+          )}
+        </Panel>
+
+      </div>
+      </SortablePanelWrapper>
+        )
+        return null
+      })}
+      </SortableContext>
+      </DndContext>
+        </div>
+
+        {showAi && (
+          <>
+            {/* 드래그 구분선 */}
+            <div
+              onMouseDown={handleDividerMouseDown}
+              className="w-1.5 shrink-0 self-stretch cursor-col-resize flex items-center justify-center group hover:bg-gray-200 transition-colors mx-1"
+              title="드래그하여 크기 조절"
+            >
+              <div className="w-0.5 h-12 bg-gray-200 group-hover:bg-gray-400 rounded-full transition-colors" />
+            </div>
+            <div className="min-w-0 overflow-hidden" style={{ width: `${100 - splitPct}%` }}>
+              <DashboardAiPanel
+                messages={aiMessages}
+                input={aiInput}
+                loading={aiLoading}
+                hasApiKey={hasAiKey}
+                bottomRef={aiBottomRef}
+                onInput={setAiInput}
+                onSend={() => sendAiQuestion()}
+                onClear={() => setAiMessages([])}
+                onNavigateSettings={() => onNavigate('settings')}
+                onPrompt={sendAiQuestion}
+              />
+            </div>
+          </>
+        )}
       </div>
     </div>
+  )
+}
+
+function DailyRoutinePanel({
+  routine, todayTodos, dailyLog, onToggleTodo, onNavigate, upcoming,
+}: {
+  routine: string[]
+  todayTodos: Todo[]
+  dailyLog: DailyLogState
+  onToggleTodo: (id: string) => void
+  onNavigate: (v: View) => void
+  upcoming: { id: string; title: string; date: string; time?: string; color: string }[]
+}) {
+  const [input, setInput] = useState('')
+  const [showWeek, setShowWeek] = useState(false)
+  const activityLog = useActivityLog()
+  const activities = activityLog.activities
+  const weekLogs = showWeek ? dailyLog.getWeekLogs() : []
+
+  function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    dailyLog.add(input)
+    setInput('')
+  }
+
+  function fmtDate(dateStr: string) {
+    const d = new Date(dateStr + 'T00:00:00')
+    const diff = Math.round((Date.now() - d.getTime()) / 86400000)
+    if (diff === 1) return '어제'
+    if (diff === 2) return '그제'
+    return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
+  }
+
+  return (
+    <section className="bg-white border border-surface-border rounded-xl p-4 space-y-3 flex flex-col" style={{ maxHeight: '240px' }}>
+      <div className="flex items-center justify-between shrink-0">
+        <h2 className="font-semibold text-gray-900 text-sm">매일 하는 일</h2>
+        <button onClick={() => onNavigate('todos')} className="text-xs text-gray-400 hover:text-gray-700">
+          할 일 보기
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 space-y-3">
+
+      {/* 루틴 */}
+      {routine.length > 0 && (
+        <ul className="space-y-1.5">
+          {routine.slice(0, 5).map((item, idx) => (
+            <li key={`${item}-${idx}`} className="flex items-start gap-2 text-sm text-gray-700">
+              <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-300 shrink-0" />
+              <span className="line-clamp-1">{item}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* 오늘 마감 할 일 */}
+      {todayTodos.length > 0 && (
+        <div className="pt-2 border-t border-surface-border space-y-1.5">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">오늘 마감</p>
+          {todayTodos.map(t => (
+            <button key={t.id} onClick={() => onToggleTodo(t.id)}
+              className="flex w-full items-center gap-2 text-left text-sm text-gray-700 hover:text-gray-900">
+              <span className="h-4 w-4 rounded border border-surface-border shrink-0" />
+              <span className="line-clamp-1">{t.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 오늘 한 일 기록 */}
+      <div className="pt-2 border-t border-surface-border space-y-2">
+        <p className="text-[10px] text-gray-400 uppercase tracking-wide">오늘 활동</p>
+        <form onSubmit={handleAdd} className="flex gap-1.5">
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="직접 기록 후 Enter"
+            className="flex-1 bg-surface border border-surface-border rounded-lg px-2.5 py-1.5 text-xs text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
+          />
+          <button type="submit" disabled={!input.trim()}
+            className="px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-700 disabled:opacity-40">
+            기록
+          </button>
+        </form>
+
+        {/* 자동 + 수동 통합 목록 (최신순) */}
+        {(activities.length > 0 || dailyLog.items.length > 0) ? (
+          <ul className="space-y-1">
+            {/* 자동 기록 - 최신순 */}
+            {[...activities].reverse().map(a => (
+              <li key={a.ts} className="group flex items-center gap-2">
+                <span className="text-[10px] text-gray-300 shrink-0 w-10 text-right">{a.time}</span>
+                <span className="flex-1 text-xs text-gray-600 line-clamp-1">{a.label}</span>
+                <button onClick={() => activityLog.remove(a.ts)}
+                  className="hidden group-hover:block text-gray-300 hover:text-red-400 text-xs shrink-0">×</button>
+              </li>
+            ))}
+            {/* 수동 기록 */}
+            {dailyLog.items.map((item, i) => (
+              <li key={`m-${i}`} className="group flex items-center gap-2">
+                <span className="text-[10px] text-gray-300 shrink-0 w-10 text-right">✓</span>
+                <span className="flex-1 text-xs text-gray-800 line-clamp-1">{item}</span>
+                <button onClick={() => dailyLog.remove(i)}
+                  className="hidden group-hover:block text-gray-300 hover:text-red-400 text-xs shrink-0">×</button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-gray-400">활동이 감지되면 자동으로 기록됩니다.</p>
+        )}
+      </div>
+
+      {/* 주간 요약 토글 */}
+      <div className="pt-1 border-t border-surface-border">
+        <button
+          onClick={() => setShowWeek(v => !v)}
+          className="w-full text-left text-[11px] text-gray-400 hover:text-gray-700 flex items-center justify-between py-0.5"
+        >
+          <span>주간 요약</span>
+          <span>{showWeek ? '▲' : '▼'}</span>
+        </button>
+        {showWeek && (
+          <div className="mt-2 space-y-2.5">
+            {weekLogs.length === 0 ? (
+              <p className="text-xs text-gray-400">최근 7일 기록이 없습니다.</p>
+            ) : (
+              weekLogs.map(log => (
+                <div key={log.date}>
+                  <p className="text-[10px] font-medium text-gray-500 mb-1">{fmtDate(log.date)}</p>
+                  <ul className="space-y-0.5">
+                    {log.items.map((item, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-gray-600">
+                        <span className="text-gray-300 shrink-0">✓</span>
+                        <span className="line-clamp-1">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>{/* 주간 요약 끝 */}
+      </div>{/* scroll div 끝 */}
+
+      {/* 다가오는 일정 */}
+      {upcoming.length > 0 && (
+        <div className="pt-2 border-t border-surface-border space-y-1.5 shrink-0">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">다가오는 일정</p>
+          {upcoming.slice(0, 5).map(e => (
+            <div key={e.id} className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.color }} />
+              <div className="min-w-0">
+                <p className="text-xs text-gray-800 truncate">{e.title}</p>
+                <p className="text-[10px] text-gray-400">{e.date}{e.time ? ` ${e.time}` : ''}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -695,8 +1215,40 @@ function Panel({ title, children, className = '', actionLabel, onAction }: {
   )
 }
 
+function SortablePanelWrapper({ id, label, editMode, children }: {
+  id: string
+  label: string
+  editMode: boolean
+  children: React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <div ref={setNodeRef} style={style} className="relative">
+      {editMode && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute -top-1 left-0 right-0 z-10 flex items-center justify-center gap-2 py-1 bg-blue-500 text-white text-xs rounded-t-lg cursor-grab active:cursor-grabbing"
+        >
+          <span>⠿</span>
+          <span>{label}</span>
+          <span>⠿</span>
+        </div>
+      )}
+      <div className={editMode ? 'pt-6 ring-2 ring-blue-300 ring-offset-1 rounded-xl' : ''}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function EmptyText({ children }: { children: React.ReactNode }) {
-  return <p className="text-gray-400 text-xs py-4 text-center leading-relaxed">{children}</p>
+  return <p className="text-gray-400 text-xs py-1 text-center leading-relaxed">{children}</p>
 }
 
 function SetupText({ children }: { children: React.ReactNode }) {

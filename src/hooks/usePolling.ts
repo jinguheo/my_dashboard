@@ -86,7 +86,7 @@ export function usePolling({ settings, onBadge, onToast, navigate }: Options) {
       for (const connection of connections) {
         const tsKey = `poll-slack-ts:${connection.id}`
         try {
-          const msgs = await fetchMessages(connection.token!, connection.channelId!, 5)
+          const msgs = await fetchMessages(connection.token!, connection.channelId!, 20)
           if (!msgs.length) continue
           const latestTs = msgs[0].ts
           const prevTs = localStorage.getItem(tsKey) || '0'
@@ -99,17 +99,18 @@ export function usePolling({ settings, onBadge, onToast, navigate }: Options) {
           const newMsgs = msgs.filter(m => m.ts > prevTs)
           if (newMsgs.length > 0) {
             const m = newMsgs[0]
-            badgeTotal += newMsgs.length
             const title = `Slack ${connection.name}: ${m.username || m.user}`
             const body = m.text.slice(0, 80)
             browserNotify(title, body, () => notifyRef.current.navigate('chat'))
             notifyRef.current.onToast(title, body, 'chat')
           }
+          // 읽지 않은 메시지(prevTs 이후)를 항상 배지에 반영
+          badgeTotal += msgs.filter(m => m.ts > prevTs).length
           localStorage.setItem(tsKey, latestTs)
         } catch {}
       }
       if (!initialized) initialized = true
-      if (badgeTotal > 0) notifyRef.current.onBadge('chat', badgeTotal)
+      notifyRef.current.onBadge('chat', badgeTotal)
     }
 
     poll()
@@ -121,9 +122,10 @@ export function usePolling({ settings, onBadge, onToast, navigate }: Options) {
     const connections = settings.chatConnections.filter(c => c.platform === 'telegram' && c.token)
     if (connections.length === 0) return
     let initialized = false
+    // 연결별 누적 미확인 메시지 수 추적
+    const unreadCounts: Record<string, number> = {}
 
     async function poll() {
-      let badgeTotal = 0
       for (const connection of connections) {
         const offsetKey = `poll-tg-offset:${connection.id}`
         try {
@@ -136,7 +138,7 @@ export function usePolling({ settings, onBadge, onToast, navigate }: Options) {
 
           if (messages.length > 0) {
             const latest = messages[messages.length - 1]
-            badgeTotal += messages.length
+            unreadCounts[connection.id] = (unreadCounts[connection.id] ?? 0) + messages.length
             const title = `Telegram ${connection.name}: ${senderName(latest)}`
             const body = latest.text?.slice(0, 80) || ''
             browserNotify(title, body, () => notifyRef.current.navigate('chat'))
@@ -145,7 +147,8 @@ export function usePolling({ settings, onBadge, onToast, navigate }: Options) {
         } catch {}
       }
       if (!initialized) initialized = true
-      if (badgeTotal > 0) notifyRef.current.onBadge('chat', badgeTotal)
+      const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0)
+      notifyRef.current.onBadge('chat', total)
     }
 
     poll()

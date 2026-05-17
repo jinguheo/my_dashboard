@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import type { AIMessage, Settings } from '@/types'
+import type { AIMessage, AiProvider, Settings } from '@/types'
 import type { TodoState } from '@/store/useTodos'
 import type { NoteState } from '@/store/useNotes'
 import type { CalendarState } from '@/store/useCalendar'
@@ -8,6 +8,8 @@ import {
   briefingSystem, reviewSystem, strategicSystem,
   buildBriefingMessage, buildReviewMessage,
 } from '@/services/claude'
+import { streamChatOpenAI } from '@/services/openai'
+import { streamClaudeWeb } from '@/services/claudeWeb'
 
 type Mode = 'briefing' | 'review' | 'chat'
 
@@ -16,14 +18,50 @@ interface Props {
   notes: NoteState
   calendar: CalendarState
   settings: Settings
+  onProviderChange: (provider: AiProvider) => void
 }
 
-export default function AI({ todos, notes, calendar, settings }: Props) {
+function ClaudeIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <path d="M7.5 1.5L9 6H13.5L9.75 8.75L11.25 13.25L7.5 10.5L3.75 13.25L5.25 8.75L1.5 6H6Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function ChatGPTIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <circle cx="7.5" cy="7.5" r="6" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M4.5 9.5C4.5 8.12 5.62 7 7 7H8C9.38 7 10.5 8.12 10.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+      <circle cx="7.5" cy="5.2" r="1.2" fill="currentColor" />
+    </svg>
+  )
+}
+
+function CustomIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <circle cx="7.5" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.3" fill="none" />
+      <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M2.93 2.93l1.06 1.06M11.01 11.01l1.06 1.06M2.93 12.07l1.06-1.06M11.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+const PROVIDERS: { id: AiProvider; label: string; icon: React.ReactNode; active: string }[] = [
+  { id: 'claude',     label: 'Claude API', icon: <ClaudeIcon />,  active: 'bg-orange-50 text-orange-600 border-orange-300' },
+  { id: 'claude-web', label: 'Claude.ai 구독', icon: <ClaudeIcon />, active: 'bg-amber-50 text-amber-600 border-amber-300' },
+  { id: 'chatgpt',    label: 'ChatGPT',    icon: <ChatGPTIcon />, active: 'bg-green-50 text-green-600 border-green-300' },
+  { id: 'custom',     label: 'Custom',     icon: <CustomIcon />, active: 'bg-purple-50 text-purple-600 border-purple-300' },
+]
+
+export default function AI({ todos, notes, calendar, settings, onProviderChange }: Props) {
   const [mode, setMode] = useState<Mode>('briefing')
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const provider = settings.aiProvider ?? 'claude'
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -44,8 +82,40 @@ export default function AI({ todos, notes, calendar, settings }: Props) {
     return `${strategicSystem(settings.userName)}\n\n${ctx}`
   }
 
+  async function callStream(
+    msgs: Array<{ role: 'user' | 'assistant'; content: string }>,
+    system: string,
+    onDelta: (text: string) => void,
+  ) {
+    if (provider === 'claude') {
+      return streamChat(settings.anthropicApiKey, msgs, system, onDelta)
+    } else if (provider === 'claude-web') {
+      return streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint, msgs, system, onDelta)
+    } else if (provider === 'chatgpt') {
+      return streamChatOpenAI(settings.openaiApiKey, 'https://api.openai.com/v1', 'gpt-4o', msgs, system, onDelta)
+    } else {
+      return streamChatOpenAI('', settings.customAiEndpoint, settings.customAiModel || 'gpt-4o', msgs, system, onDelta)
+    }
+  }
+
+  const noKey = provider === 'claude'
+    ? !settings.anthropicApiKey
+    : provider === 'claude-web'
+      ? !settings.claudeSessionKey
+      : provider === 'chatgpt'
+        ? !settings.openaiApiKey
+        : !settings.customAiEndpoint
+
+  const noKeyMsg = provider === 'claude'
+    ? '설정에서 Anthropic API 키를 입력하면 AI 기능을 사용할 수 있습니다.'
+    : provider === 'claude-web'
+      ? '설정에서 Claude.ai 구독 계정으로 연결하세요.'
+      : provider === 'chatgpt'
+        ? '설정에서 OpenAI API 키를 입력하면 ChatGPT를 사용할 수 있습니다.'
+        : '설정에서 Custom AI 엔드포인트를 입력하면 사용할 수 있습니다.'
+
   async function handleGenerate() {
-    if (!settings.anthropicApiKey) return
+    if (noKey) return
     setLoading(true)
 
     let userMsg = ''
@@ -70,19 +140,24 @@ export default function AI({ todos, notes, calendar, settings }: Props) {
     setMessages(p => [...p, userMessage, assistantMessage])
 
     const idx = messages.length + 1
-    await streamChat(
-      settings.anthropicApiKey,
-      [{ role: 'user', content: userMsg }],
-      getSystem(),
-      (delta) => {
-        setMessages(p => p.map((m, i) => i === idx ? { ...m, content: m.content + delta } : m))
-      }
-    )
-    setLoading(false)
+    try {
+      await callStream(
+        [{ role: 'user', content: userMsg }],
+        getSystem(),
+        (delta) => {
+          setMessages(p => p.map((m, i) => i === idx ? { ...m, content: m.content + delta } : m))
+        }
+      )
+    } catch (e: any) {
+      const errMsg = e?.error?.message || e?.message || String(e)
+      setMessages(p => p.map((m, i) => i === idx ? { ...m, content: `오류: ${errMsg}` } : m))
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleSend() {
-    if (!input.trim() || !settings.anthropicApiKey || loading) return
+    if (!input.trim() || noKey || loading) return
     const userContent = input.trim()
     setInput('')
     setLoading(true)
@@ -95,23 +170,45 @@ export default function AI({ todos, notes, calendar, settings }: Props) {
     const history = newMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
     const lastIdx = newMessages.length - 1
 
-    await streamChat(
-      settings.anthropicApiKey,
-      history as Array<{ role: 'user' | 'assistant'; content: string }>,
-      getSystem(),
-      (delta) => {
-        setMessages(p => p.map((m, i) => i === lastIdx ? { ...m, content: m.content + delta } : m))
-      }
-    )
-    setLoading(false)
+    try {
+      await callStream(
+        history as Array<{ role: 'user' | 'assistant'; content: string }>,
+        getSystem(),
+        (delta) => {
+          setMessages(p => p.map((m, i) => i === lastIdx ? { ...m, content: m.content + delta } : m))
+        }
+      )
+    } catch (e: any) {
+      const errMsg = e?.error?.message || e?.message || String(e)
+      setMessages(p => p.map((m, i) => i === lastIdx ? { ...m, content: `오류: ${errMsg}` } : m))
+    } finally {
+      setLoading(false)
+    }
   }
-
-  const noKey = !settings.anthropicApiKey
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2">
-        <h1 className="text-sm font-bold text-gray-900 mr-3">✦ AI 어시스턴트</h1>
+        <h1 className="text-sm font-bold text-gray-900 mr-2">✦ AI 어시스턴트</h1>
+
+        {/* Provider selector icons */}
+        <div className="flex items-center gap-1 mr-2 border-r border-surface-border pr-3">
+          {PROVIDERS.map(({ id, label, icon, active }) => (
+            <button
+              key={id}
+              title={label}
+              onClick={() => onProviderChange(id)}
+              className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors ${
+                provider === id
+                  ? active
+                  : 'bg-white border-surface-border text-gray-400 hover:text-gray-600 hover:bg-surface-hover'
+              }`}
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+
         {([['briefing', '🌅 아침 브리핑'], ['review', '📊 하루 리뷰'], ['chat', '💬 전략 대화']] as const).map(([m, label]) => (
           <button
             key={m}
@@ -134,7 +231,7 @@ export default function AI({ todos, notes, calendar, settings }: Props) {
         {noKey && (
           <div className="text-center py-8">
             <p className="text-4xl mb-3">🔑</p>
-            <p className="text-red-500 text-sm">설정에서 Anthropic API 키를 입력하면 AI 기능을 사용할 수 있습니다.</p>
+            <p className="text-red-500 text-sm">{noKeyMsg}</p>
           </div>
         )}
 

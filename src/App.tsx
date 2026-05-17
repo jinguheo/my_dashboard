@@ -9,12 +9,14 @@ import Email from '@/views/Email'
 import Chat from '@/views/Chat'
 import Settings from '@/views/Settings'
 import History from '@/views/History'
+import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
 import { useNotes } from '@/store/useNotes'
 import { useCalendar } from '@/store/useCalendar'
 import { useSettings } from '@/store/useSettings'
 import { usePolling } from '@/hooks/usePolling'
 import { saveSnapshot, hasSnapshotToday, todayStr } from '@/services/snapshot'
+import { logActivity } from '@/services/activityLog'
 import type { View } from '@/types'
 
 interface Toast { title: string; body: string; view: 'email' | 'chat' }
@@ -30,6 +32,9 @@ export default function App() {
   const calendar = useCalendar()
   const { settings, updateSettings } = useSettings()
 
+  const noAi = !settings.anthropicApiKey && !settings.claudeSessionKey && !settings.openaiApiKey && !settings.customAiEndpoint
+  const [showWizard, setShowWizard] = useState(() => noAi && !localStorage.getItem('wizard-skipped'))
+
   const handleBadge = useCallback((v: 'email' | 'chat', n: number) => {
     setBadges(p => ({ ...p, [v]: n }))
   }, [])
@@ -40,11 +45,15 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 5000)
   }, [])
 
-  const navigate = useCallback((v: View) => setView(v), [])
+  const handleNavigate = useCallback((v: View) => {
+    setView(v)
+    if (v === 'email') { setBadges(p => ({ ...p, email: 0 })); logActivity('email', '이메일 확인') }
+    if (v === 'chat')  { setBadges(p => ({ ...p, chat: 0 }));  logActivity('chat', '채팅 확인') }
+  }, [])
 
-  usePolling({ settings, onBadge: handleBadge, onToast: handleToast, navigate })
+  usePolling({ settings, onBadge: handleBadge, onToast: handleToast, navigate: handleNavigate })
 
-  // 하루 첫 접속 시 스냅샷 자동 저장
+  // 하루 첫 접속 시 스냅샷 자동 저장 (마운트 시점 값 사용이 의도적)
   useEffect(() => {
     if (!hasSnapshotToday()) {
       saveSnapshot({
@@ -55,6 +64,7 @@ export default function App() {
         completedCount: todos.completedToday.length,
       })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 브리핑 생성 후 스냅샷 갱신 (briefing localStorage 변화 감지)
@@ -74,26 +84,26 @@ export default function App() {
     return () => window.removeEventListener('storage', onStorage)
   }, [todos.todos, notes.notes, calendar.events, todos.completedToday.length])
 
-  function handleNavigate(v: View) {
-    setView(v)
-    if (v === 'email') setBadges(p => ({ ...p, email: 0 }))
-    if (v === 'chat')  setBadges(p => ({ ...p, chat: 0 }))
-  }
-
   return (
     <div className="flex h-screen bg-white text-gray-900 overflow-hidden">
+      {showWizard && (
+        <SetupWizard
+          onComplete={(patch) => { updateSettings(patch); setShowWizard(false) }}
+          onSkip={() => { localStorage.setItem('wizard-skipped', '1'); setShowWizard(false) }}
+        />
+      )}
       <Sidebar current={view} onNavigate={handleNavigate} badges={badges} />
 
       <main className="flex-1 overflow-hidden flex flex-col">
         {view === 'dashboard' && (
-          <Dashboard todos={todos} notes={notes} calendar={calendar} settings={settings} onNavigate={handleNavigate} />
+          <Dashboard todos={todos} notes={notes} calendar={calendar} settings={settings} onNavigate={handleNavigate} onUpdateSettings={updateSettings} />
         )}
         {view === 'todos'    && <Todos todos={todos} />}
         {view === 'notes'    && <Notes notes={notes} />}
         {view === 'calendar' && <Calendar calendar={calendar} settings={settings} />}
         {view === 'email'    && <Email settings={settings} onNavigate={handleNavigate} />}
         {view === 'chat'     && <Chat settings={settings} onNavigate={handleNavigate} />}
-        {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} />}
+        {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} onProviderChange={(p) => updateSettings({ aiProvider: p })} />}
         {view === 'settings' && <Settings settings={settings} onSave={updateSettings} />}
         {view === 'history'  && <History />}
       </main>

@@ -1,12 +1,23 @@
 import Anthropic from '@anthropic-ai/sdk'
 
+let cachedClient: Anthropic | null = null
+let cachedApiKey = ''
+
+function getClient(apiKey: string): Anthropic {
+  if (!cachedClient || cachedApiKey !== apiKey) {
+    cachedClient = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+    cachedApiKey = apiKey
+  }
+  return cachedClient
+}
+
 export async function streamChat(
   apiKey: string,
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   system: string,
   onDelta: (text: string) => void,
 ): Promise<string> {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+  const client = getClient(apiKey)
   let full = ''
 
   const stream = client.messages.stream({

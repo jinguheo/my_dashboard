@@ -47,23 +47,32 @@ export interface ConnectionAuth {
 export interface MailAccount {
   id: string
   name: string
-  provider: 'gmail' | 'mcp'
+  provider: 'gmail' | 'mcp' | 'naver' | 'imap'
   clientId?: string
   mcpEndpoint?: string
   inboxTool?: string
   auth?: ConnectionAuth
   extraArgs?: Record<string, unknown>
+  // IMAP 전용 (naver / imap provider)
+  imapHost?: string
+  imapPort?: number
+  imapSsl?: boolean
 }
 
 export interface CalendarAccount {
   id: string
   name: string
-  provider: 'google' | 'mcp'
+  provider: 'google' | 'mcp' | 'caldav' | 'ics'
   clientId?: string
   mcpEndpoint?: string
   eventsTool?: string
   auth?: ConnectionAuth
   extraArgs?: Record<string, unknown>
+  // CalDAV 전용
+  caldavEmail?: string
+  caldavPassword?: string
+  // ICS URL 전용
+  icsUrl?: string
 }
 
 export interface ChatConnection {
@@ -79,11 +88,19 @@ export interface ChatConnection {
   extraArgs?: Record<string, unknown>
 }
 
+export type AiProvider = 'claude' | 'chatgpt' | 'custom' | 'claude-web'
+
 export interface Settings {
   anthropicApiKey: string
+  openaiApiKey: string
+  customAiEndpoint: string
+  customAiModel: string
+  aiProvider: AiProvider
+  claudeSessionKey: string
   weatherApiKey: string
   finnhubApiKey: string
-  city: string
+  city: string          // 하위 호환용 (단일 도시)
+  weatherCities: string // 쉼표 구분 다중 도시
   userName: string
   dailyRoutine: string
   stockSymbols: string

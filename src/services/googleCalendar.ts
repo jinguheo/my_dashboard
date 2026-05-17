@@ -148,3 +148,44 @@ export async function fetchGCalEventsFromMcp(
   if (Array.isArray(result)) return result
   return result.events || []
 }
+
+export async function fetchIcsEvents(
+  mcpEndpoint: string,
+  icsUrl: string,
+  days = 60,
+): Promise<GCalEvent[]> {
+  const result = await callMcpTool<Array<{ id: string; title: string; date: string; time?: string; color?: string }>>(
+    mcpEndpoint, 'calendar.ics', { url: icsUrl, days }
+  )
+  if (!Array.isArray(result)) return []
+  return result.map(e => ({
+    id: e.id,
+    summary: e.title,
+    start: e.time ? `${e.date}T${e.time}:00` : e.date,
+    end: e.time ? `${e.date}T${e.time}:00` : e.date,
+    htmlLink: '',
+    isAllDay: !e.time,
+    colorId: undefined,
+  }))
+}
+
+export async function fetchCalDavEvents(
+  mcpEndpoint: string,
+  email: string,
+  appPassword: string,
+  days = 30,
+): Promise<GCalEvent[]> {
+  const result = await callMcpTool<Array<{ id: string; title: string; date: string; time?: string; color?: string }>>(
+    mcpEndpoint, 'calendar.caldav', { email, app_password: appPassword, days }
+  )
+  if (!Array.isArray(result)) return []
+  return result.map(e => ({
+    id: e.id,
+    summary: e.title,
+    start: e.time ? `${e.date}T${e.time}:00` : e.date,
+    end: e.time ? `${e.date}T${e.time}:00` : e.date,
+    htmlLink: '',
+    isAllDay: !e.time,
+    colorId: undefined,
+  }))
+}

@@ -1,5 +1,6 @@
 export interface StockQuote {
   symbol: string
+  displayName?: string
   price: number
   change: number
   changePercent: number
@@ -11,11 +12,16 @@ export interface StockQuote {
 
 const BASE = 'https://finnhub.io/api/v1'
 
+const KRW_INDEX_SYMBOLS = new Set(['^KS11', '^KQ11', '^KS200'])
+
+function detectIsKRW(symbol: string): boolean {
+  return symbol.includes('.KS') || symbol.includes('.KQ') || KRW_INDEX_SYMBOLS.has(symbol)
+}
+
 export async function fetchQuote(symbol: string, token: string): Promise<StockQuote> {
   const res = await fetch(`${BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${token}`)
   if (!res.ok) throw new Error(`요청 실패: ${symbol}`)
   const d = await res.json()
-  const isKRW = symbol.includes('.KS') || symbol.includes('.KQ')
   return {
     symbol,
     price: d.c,
@@ -24,7 +30,7 @@ export async function fetchQuote(symbol: string, token: string): Promise<StockQu
     high: d.h,
     low: d.l,
     prevClose: d.pc,
-    isKRW,
+    isKRW: detectIsKRW(symbol),
   }
 }
 
@@ -70,6 +76,7 @@ export function fmtChange(q: StockQuote): string {
   return `${c} (${sign}${q.changePercent.toFixed(2)}%)`
 }
 
-export function displaySymbol(symbol: string): string {
-  return symbol.replace(/\.(KS|KQ)$/, '')
+export function displaySymbol(q: StockQuote | string): string {
+  if (typeof q === 'string') return q.replace(/\.(KS|KQ)$/, '').replace(/^\^/, '')
+  return q.displayName || q.symbol.replace(/\.(KS|KQ)$/, '').replace(/^\^/, '')
 }

@@ -1,49 +1,74 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 
 export interface Bookmark {
   id: string
   url: string
   title: string
   favicon: string
+  clicks: number
+}
+
+function normalize(bm: unknown): Bookmark {
+  const b = bm as Record<string, unknown>
+  return {
+    id: String(b.id ?? ''),
+    url: String(b.url ?? ''),
+    title: String(b.title ?? ''),
+    favicon: String(b.favicon ?? ''),
+    clicks: typeof b.clicks === 'number' ? b.clicks : 0,
+  }
 }
 
 const defaults: Bookmark[] = [
-  { id: '0', url: 'https://www.youtube.com', title: 'YouTube', favicon: 'https://www.youtube.com/favicon.ico' },
-  { id: '1', url: 'https://github.com', title: 'GitHub', favicon: 'https://github.com/favicon.ico' },
-  { id: '2', url: 'https://www.google.com', title: 'Google', favicon: 'https://www.google.com/favicon.ico' },
-  { id: '3', url: 'https://mail.google.com', title: 'Gmail', favicon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico' },
-  { id: '4', url: 'https://drive.google.com', title: 'Drive', favicon: 'https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png' },
-  { id: '5', url: 'https://calendar.google.com', title: 'Calendar', favicon: 'https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_31.ico' },
+  { id: '0', url: 'https://www.youtube.com',    title: 'YouTube',  favicon: 'https://www.youtube.com/favicon.ico',                                                                clicks: 0 },
+  { id: '1', url: 'https://github.com',          title: 'GitHub',   favicon: 'https://github.com/favicon.ico',                                                                     clicks: 0 },
+  { id: '2', url: 'https://www.google.com',      title: 'Google',   favicon: 'https://www.google.com/favicon.ico',                                                                 clicks: 0 },
+  { id: '3', url: 'https://mail.google.com',     title: 'Gmail',    favicon: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',                                             clicks: 0 },
+  { id: '4', url: 'https://drive.google.com',    title: 'Drive',    favicon: 'https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png',                                  clicks: 0 },
+  { id: '5', url: 'https://calendar.google.com', title: 'Calendar', favicon: 'https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_31.ico',                  clicks: 0 },
 ]
+
+const KEY = 'bookmarks'
 
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('bookmarks') || JSON.stringify(defaults))
+      const raw = JSON.parse(localStorage.getItem(KEY) || JSON.stringify(defaults))
+      return (raw as unknown[]).map(normalize)
     } catch {
       return defaults
     }
   })
 
   useEffect(() => {
-    localStorage.setItem('bookmarks', JSON.stringify(bookmarks))
+    localStorage.setItem(KEY, JSON.stringify(bookmarks))
   }, [bookmarks])
 
-  function add(url: string, title?: string) {
+  const add = useCallback((url: string, title?: string) => {
     const clean = url.startsWith('http') ? url : `https://${url}`
     const host = new URL(clean).hostname
-    const bm: Bookmark = {
+    setBookmarks(prev => [...prev, {
       id: crypto.randomUUID(),
       url: clean,
       title: title || host,
       favicon: `https://www.google.com/s2/favicons?domain=${host}&sz=32`,
-    }
-    setBookmarks(prev => [...prev, bm])
-  }
+      clicks: 0,
+    }])
+  }, [])
 
-  function remove(id: string) {
+  const remove = useCallback((id: string) => {
     setBookmarks(prev => prev.filter(b => b.id !== id))
-  }
+  }, [])
 
-  return { bookmarks, add, remove }
+  const click = useCallback((id: string) => {
+    setBookmarks(prev => prev.map(b => b.id === id ? { ...b, clicks: b.clicks + 1 } : b))
+  }, [])
+
+  // 클릭 많은 순 → 추가 순(id 기준)으로 정렬
+  const sorted = useMemo(
+    () => [...bookmarks].sort((a, b) => b.clicks - a.clicks || a.id.localeCompare(b.id)),
+    [bookmarks],
+  )
+
+  return { bookmarks: sorted, add, remove, click }
 }
