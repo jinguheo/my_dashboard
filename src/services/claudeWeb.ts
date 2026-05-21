@@ -2,6 +2,33 @@ import { callMcpTool } from './mcp'
 
 const MCP = 'http://127.0.0.1:8765/mcp'
 
+export async function claudeWebAutoConnect(mcpEndpoint: string): Promise<string | null> {
+  try {
+    const result = await callMcpTool<{ sessionKey: string }>(
+      mcpEndpoint,
+      'claude.capture_session',
+      { timeout: 10, quick_only: true },
+      undefined,
+      12_000,
+    )
+    return result.sessionKey || null
+  } catch {
+    return null
+  }
+}
+
+export async function claudeWebCaptureSession(mcpEndpoint: string): Promise<string> {
+  const result = await callMcpTool<{ sessionKey: string }>(
+    mcpEndpoint,
+    'claude.capture_session',
+    { timeout: 120 },
+    undefined,
+    130_000,
+  )
+  if (!result.sessionKey) throw new Error('세션 키를 가져오지 못했습니다.')
+  return result.sessionKey
+}
+
 export async function claudeWebLogin(email: string, password: string): Promise<string> {
   const result = await callMcpTool<{ sessionKey: string }>(MCP, 'claude.login', { email, password })
   if (!result.sessionKey) throw new Error('세션 키를 가져오지 못했습니다.')

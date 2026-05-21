@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CalendarAccount, ChatConnection, ConnectionAuth, ConnectionAuthMode, MailAccount, Settings } from '@/types'
 import { listMcpTools } from '@/services/mcp'
 import { fetchApiKeyViaLogin } from '@/services/apiKeyLogin'
-import { claudeWebLogin } from '@/services/claudeWeb'
+import { claudeWebLogin, claudeWebCaptureSession } from '@/services/claudeWeb'
 import {
   loadGoogleAuth, requestGmailToken, revokeGmailToken,
   getStoredToken, storeToken, clearGmailToken,
@@ -888,6 +888,19 @@ function ClaudeWebLoginBlock({
   const [success, setSuccess] = useState('')
   const [sessionInput, setSessionInput] = useState('')
 
+  async function handleAutoCapture() {
+    setLoading(true); setError(''); setSuccess('')
+    try {
+      const key = await claudeWebCaptureSession(mcpEndpoint)
+      onSessionKey(key)
+      setSuccess('연결됨! 저장 버튼을 눌러 적용하세요.')
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleLogin() {
     if (!email || !password) { setError('이메일과 비밀번호를 입력하세요.'); return }
     setLoading(true); setError(''); setSuccess('')
@@ -943,37 +956,39 @@ function ClaudeWebLoginBlock({
 
       {tab === 'google' ? (
         <div className="space-y-3">
-          <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-3">
-            <p className="text-xs font-semibold text-blue-800">Google 계정 연결 방법</p>
-            <ol className="text-xs text-blue-700 space-y-2 list-decimal list-inside leading-relaxed">
-              <li>아래 버튼으로 Claude.ai 열기 → Google 로그인</li>
-              <li>로그인 후 <kbd className="bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded font-mono">F12</kbd> → 개발자 도구 열기</li>
-              <li>
-                <strong>Application</strong> 탭 클릭
-                <span className="block ml-4 mt-0.5 text-blue-600">※ 탭이 안 보이면 <kbd className="bg-blue-100 border border-blue-200 px-1 rounded font-mono">&gt;&gt;</kbd> 버튼으로 숨은 탭 확인</span>
-              </li>
-              <li>
-                왼쪽 사이드바: <strong>Storage → Cookies → https://claude.ai</strong>
-              </li>
-              <li>목록에서 <code className="bg-blue-100 px-1 rounded">sessionKey</code> 행 클릭 → <strong>Value</strong> 열 값 복사</li>
-              <li>아래 입력란에 붙여넣기 → 적용</li>
-            </ol>
-            <button
-              type="button"
-              onClick={() => window.open('https://claude.ai', '_blank', 'noopener,noreferrer')}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-blue-200 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-50 transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 18 18" fill="none">
-                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
-                <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
-                <path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
-                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
-              </svg>
-              claude.ai 열기 (Google 로그인)
-            </button>
-          </div>
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-gray-700">세션 키 붙여넣기</span>
+          {/* 자동 연결 */}
+          <button
+            type="button"
+            onClick={handleAutoCapture}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+          >
+            {loading ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                브라우저에서 로그인 중... (최대 2분)
+              </>
+            ) : (
+              <>
+                <svg width="15" height="15" viewBox="0 0 18 18" fill="none">
+                  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#fff"/>
+                  <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#fff"/>
+                  <path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#fff"/>
+                  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#fff"/>
+                </svg>
+                Google 계정으로 자동 연결
+              </>
+            )}
+          </button>
+          {loading && (
+            <p className="text-xs text-gray-500 text-center">
+              열린 브라우저 창에서 Google로 로그인하면 자동으로 세션 키를 가져옵니다.
+            </p>
+          )}
+          {/* 수동 입력 (대안) */}
+          <details className="group">
+            <summary className="cursor-pointer text-xs text-gray-400 hover:text-gray-600 select-none">직접 세션 키 붙여넣기 (대안)</summary>
+            <div className="mt-2 space-y-1.5">
             <div className="flex gap-2">
               <input
                 type="password"
@@ -992,7 +1007,8 @@ function ClaudeWebLoginBlock({
                 적용
               </button>
             </div>
-          </div>
+            </div>
+          </details>
         </div>
       ) : (
         <div className="space-y-3">

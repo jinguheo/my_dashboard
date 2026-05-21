@@ -37,8 +37,12 @@ export async function callMcpTool<T = unknown>(
   name: string,
   args: Record<string, unknown> = {},
   auth?: ConnectionAuth,
+  timeoutMs?: number,
 ): Promise<T> {
+  const controller = timeoutMs ? new AbortController() : undefined
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : undefined
   const res = await fetch(endpoint, {
+    signal: controller?.signal,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(auth) },
     body: JSON.stringify({
@@ -49,6 +53,7 @@ export async function callMcpTool<T = unknown>(
     }),
   })
 
+  clearTimeout(timer)
   if (!res.ok) throw new Error(`MCP request failed: ${res.status}`)
   const data = await res.json()
   if (data.error) throw new Error(data.error.message || 'MCP tool error')

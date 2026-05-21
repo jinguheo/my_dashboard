@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Claude 세션 키 자동 전송 북마크릿</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; }
+  h1 { font-size: 20px; }
+  .step { background: #f5f5f5; border-radius: 12px; padding: 16px 20px; margin: 12px 0; }
+  .step h3 { margin: 0 0 8px; font-size: 14px; color: #555; }
+  a.bookmarklet {
+    display: inline-block;
+    padding: 10px 20px;
+    background: #1a1a1a;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: grab;
+  }
+  a.bookmarklet:hover { background: #333; }
+  .tip { font-size: 13px; color: #666; margin-top: 8px; }
+  .success { color: #16a34a; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Claude.ai → 대시보드 자동 연결</h1>
+
+<div class="step">
+  <h3>1단계 — 북마크릿을 북마크 바에 드래그</h3>
+  <a class="bookmarklet" href="javascript:(function(){var k=document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('sessionKey='));if(!k){alert('❌ sessionKey 없음. claude.ai에 먼저 로그인하세요.');return;}var v=k.split('=').slice(1).join('=');fetch('http://127.0.0.1:8765/mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'claude.store_session',arguments:{session_key:v}}})}).then(r=>r.json()).then(d=>d.error?alert('❌ 오류: '+d.error.message):alert('✅ Claude 연결 완료!')).catch(e=>alert('❌ MCP 서버 연결 실패. 대시보드를 먼저 실행하세요.'));})();">
+    🔑 Claude 연결
+  </a>
+  <p class="tip">위 버튼을 북마크 바(즐겨찾기 바)로 드래그하세요</p>
+</div>
+
+<div class="step">
+  <h3>2단계 — 사용 방법</h3>
+  <ol style="font-size:14px; line-height:1.8; margin:0; padding-left:20px;">
+    <li>Chrome에서 <strong>claude.ai</strong> 접속 (로그인된 상태)</li>
+    <li>북마크 바의 <strong>"🔑 Claude 연결"</strong> 클릭</li>
+    <li>"✅ Claude 연결 완료!" 알림 확인</li>
+    <li>대시보드에서 자동으로 AI 연결됨</li>
+  </ol>
+</div>
+
+<div class="step">
+  <h3>세션 만료 시</h3>
+  <p style="font-size:14px; margin:0;">claude.ai에서 다시 북마크릿 클릭 → 자동 갱신됩니다.</p>
+</div>
+</body>
+</html>

@@ -17,6 +17,7 @@ import { useSettings } from '@/store/useSettings'
 import { usePolling } from '@/hooks/usePolling'
 import { saveSnapshot, hasSnapshotToday, todayStr } from '@/services/snapshot'
 import { logActivity } from '@/services/activityLog'
+import { claudeWebAutoConnect } from '@/services/claudeWeb'
 import type { View } from '@/types'
 
 interface Toast { title: string; body: string; view: 'email' | 'chat' }
@@ -52,6 +53,17 @@ export default function App() {
   }, [])
 
   usePolling({ settings, onBadge: handleBadge, onToast: handleToast, navigate: handleNavigate })
+
+  // 시작 시 Chrome 쿠키에서 Claude.ai 세션 키 자동 갱신
+  useEffect(() => {
+    if (!settings.mcpEndpoint) return
+    claudeWebAutoConnect(settings.mcpEndpoint).then(key => {
+      if (key && key !== settings.claudeSessionKey) {
+        updateSettings({ claudeSessionKey: key, aiProvider: 'claude-web' })
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 하루 첫 접속 시 스냅샷 자동 저장 (마운트 시점 값 사용이 의도적)
   useEffect(() => {

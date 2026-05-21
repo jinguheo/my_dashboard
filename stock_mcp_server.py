@@ -17,6 +17,7 @@ from email.header import decode_header as _dh
 from email.utils import parsedate_to_datetime
 from datetime import date as _date
 import re as _re
+import time as _time
 
 app = Flask(__name__)
 CORS(app)
@@ -627,52 +628,252 @@ def _get_org(session_key):
 
 def claude_web_chat(session_key, messages, system=''):
     org_id = _get_org(session_key)
-    conv_id = str(_uuid.uuid4())
-    req_lib.post(f'{_CLAUDE_BASE}/api/organizations/{org_id}/chat_conversations',
-                 json={'name': '', 'uuid': conv_id}, headers=_ch(session_key), timeout=10)
 
-    # 새 메시지 형식 (2024 이후 claude.ai 내부 API)
-    api_messages = []
+    # 마지막 user 메시지를 prompt로 추출
+    prompt = ''
+    for m in reversed(messages):
+        if m.get('role') == 'user':
+            prompt = m.get('content', '')
+            break
+
+    # 시스템 컨텍스트를 prompt 앞에 붙임
     if system:
-        api_messages.append({'role': 'user', 'content': [{'type': 'text', 'text': f'[System]\n{system}'}]})
-        api_messages.append({'role': 'assistant', 'content': [{'type': 'text', 'text': '알겠습니다.'}]})
-    for m in messages:
-        api_messages.append({
-            'role': m['role'],
-            'content': [{'type': 'text', 'text': m['content']}],
-        })
+        prompt = f'{system}\n\n---\n\n{prompt}'
 
-    hdrs = {**_ch(session_key), 'accept': 'text/event-stream'}
+    hdrs_base = _ch(session_key)
+    hdrs = {**hdrs_base, 'accept': 'text/event-stream'}
     body = {
-        'prompt': '',
+        'prompt': prompt,
         'model': 'claude-sonnet-4-5',
         'timezone': 'Asia/Seoul',
-        'incremental_usage': True,
-        'tools': [],
         'attachments': [],
         'files': [],
-        'rendering_mode': 'raw',
-        'message': api_messages[-1]['content'][0]['text'] if api_messages else '',
-        'max_tokens': 1500,
+        'rendering_mode': 'messages',
+        'tools': [],
     }
-    r = req_lib.post(
-        f'{_CLAUDE_BASE}/api/organizations/{org_id}/chat_conversations/{conv_id}/completion',
-        json=body, headers=hdrs, stream=True, timeout=90)
-    r.raise_for_status()
+
+    # 429 대응: 최대 2회 재시도 (30초 대기)
+    for attempt in range(3):
+        conv_id = str(_uuid.uuid4())
+        req_lib.post(f'{_CLAUDE_BASE}/api/organizations/{org_id}/chat_conversations',
+                     json={'name': '', 'uuid': conv_id}, headers=hdrs_base, timeout=10)
+        r = req_lib.post(
+            f'{_CLAUDE_BASE}/api/organizations/{org_id}/chat_conversations/{conv_id}/completion',
+            json=body, headers=hdrs, stream=True, timeout=90)
+        if r.status_code == 429:
+            if attempt < 2:
+                wait = int(r.headers.get('retry-after', 30))
+                logging.warning(f'Claude.ai 429 — {wait}초 후 재시도 (시도 {attempt+1}/3)')
+                _time.sleep(min(wait, 60))
+                continue
+            raise Exception('요청 한도 초과(429). 잠시 후 다시 시도하세요.')
+        r.raise_for_status()
+        break
     full = ''
     for line in r.iter_lines():
         if not line or not line.startswith(b'data: '):
             continue
         try:
             d = _json.loads(line[6:])
-            # 스트리밍 텍스트 누적
-            if 'completion' in d:
+            if d.get('type') == 'content_block_delta':
+                delta = d.get('delta', {})
+                full += delta.get('text', '')
+            elif 'completion' in d:
                 full = d['completion']
-            elif d.get('type') == 'content_block_delta':
-                full += d.get('delta', {}).get('text', '')
         except Exception:
             pass
     return full
+
+import pathlib as _pathlib
+_SESSION_CACHE = _pathlib.Path(__file__).parent / '.claude_session_key'
+
+def store_session_key(key):
+    _SESSION_CACHE.write_text(key, encoding='utf-8')
+    logging.info('세션 키 캐시 저장 완료')
+
+def load_session_key_cache():
+    if _SESSION_CACHE.exists():
+        return _SESSION_CACHE.read_text(encoding='utf-8').strip() or None
+    return None
+
+def _read_chrome_via_cdp(port=9222):
+    """실행 중인 Chrome의 CDP로 claude.ai sessionKey 읽기 (--remote-debugging-port 필요)"""
+    import urllib.request, json as _json
+    try:
+        r = urllib.request.urlopen(f'http://localhost:{port}/json', timeout=2)
+        tabs = _json.loads(r.read())
+    except Exception:
+        return None
+
+    # claude.ai 탭 찾기
+    ws_url = None
+    for tab in tabs:
+        if 'claude.ai' in tab.get('url', '') and tab.get('webSocketDebuggerUrl'):
+            ws_url = tab['webSocketDebuggerUrl']
+            break
+    if not ws_url:
+        # 탭 없으면 첫 번째 탭 사용
+        for tab in tabs:
+            if tab.get('webSocketDebuggerUrl'):
+                ws_url = tab['webSocketDebuggerUrl']
+                break
+    if not ws_url:
+        return None
+
+    try:
+        import websocket
+        ws = websocket.WebSocket()
+        ws.connect(ws_url, timeout=5)
+        ws.send(_json.dumps({'id': 1, 'method': 'Network.getCookies',
+                             'params': {'urls': ['https://claude.ai']}}))
+        result = _json.loads(ws.recv())
+        ws.close()
+        for c in result.get('result', {}).get('cookies', []):
+            if c['name'] == 'sessionKey' and c['value']:
+                return c['value']
+    except Exception as e:
+        logging.warning(f'CDP 쿠키 읽기 실패: {e}')
+    return None
+
+
+def _read_chrome_session_key():
+    """Chrome 쿠키 DB에서 claude.ai sessionKey를 직접 읽어 반환 (브라우저 불필요)"""
+    import os, sqlite3, shutil, tempfile, json, base64, ctypes, ctypes.wintypes
+
+    local_app = os.environ.get('LOCALAPPDATA', '')
+    cookie_src = os.path.join(local_app, r'Google\Chrome\User Data\Default\Network\Cookies')
+    local_state_path = os.path.join(local_app, r'Google\Chrome\User Data\Local State')
+    if not os.path.exists(cookie_src) or not os.path.exists(local_state_path):
+        return None
+
+    # AES 키 추출 (DPAPI로 보호된 Chrome 마스터 키)
+    with open(local_state_path, 'r', encoding='utf-8') as f:
+        enc_key_b64 = json.load(f)['os_crypt']['encrypted_key']
+    enc_key = base64.b64decode(enc_key_b64)[5:]  # 'DPAPI' 접두사 제거
+
+    class _BLOB(ctypes.Structure):
+        _fields_ = [('cbData', ctypes.wintypes.DWORD), ('pbData', ctypes.POINTER(ctypes.c_char))]
+
+    def _dpapi_decrypt(data):
+        buf = ctypes.create_string_buffer(data, len(data))
+        blob_in = _BLOB(len(data), buf)
+        blob_out = _BLOB()
+        if not ctypes.windll.crypt32.CryptUnprotectData(
+                ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)):
+            return None
+        result = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+        return result
+
+    aes_key = _dpapi_decrypt(enc_key)
+    if not aes_key:
+        return None
+
+    # 쿠키 DB 임시 복사 (Chrome 실행 중 lock 우회)
+    tmp = tempfile.mktemp(suffix='.db')
+    shutil.copy2(cookie_src, tmp)
+    try:
+        conn = sqlite3.connect(tmp)
+        row = conn.execute(
+            "SELECT encrypted_value FROM cookies WHERE host_key LIKE '%claude.ai%' AND name='sessionKey'"
+        ).fetchone()
+        conn.close()
+    finally:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+    if not row:
+        return None
+
+    enc_val = row[0]
+    if enc_val[:3] != b'v10':
+        return None  # 구버전 포맷은 미지원
+
+    try:
+        from Crypto.Cipher import AES
+        iv, payload = enc_val[3:15], enc_val[15:]
+        decrypted = AES.new(aes_key, AES.MODE_GCM, iv).decrypt(payload[:-16])
+        return decrypted.decode('utf-8')
+    except Exception:
+        return None
+
+
+def claude_capture_session(timeout_s=120, quick_only=False):
+    import os
+
+    # 1단계: CDP (실행 중인 Chrome에서 직접 읽기, 가장 빠름)
+    try:
+        key = _read_chrome_via_cdp()
+        if key:
+            logging.info('CDP로 실행 중인 Chrome에서 sessionKey 추출 성공')
+            return key
+    except Exception as e:
+        logging.warning(f'CDP 읽기 실패: {e}')
+
+    # 2단계: Chrome 쿠키 DB 직접 읽기 (Chrome이 닫혀있을 때)
+    try:
+        key = _read_chrome_session_key()
+        if key:
+            logging.info('Chrome 쿠키 DB에서 sessionKey 추출 성공')
+            return key
+    except Exception as e:
+        logging.warning(f'쿠키 DB 직접 읽기 실패: {e}')
+
+    # 캐시 확인 (북마크릿으로 저장된 키)
+    try:
+        key = load_session_key_cache()
+        if key:
+            logging.info('캐시에서 sessionKey 로드')
+            return key
+    except Exception:
+        pass
+
+    if quick_only:
+        raise Exception('세션 키 없음. claude.ai에서 북마크릿을 클릭하거나 설정에서 연결하세요.')
+
+    # 2단계: Chrome 기존 프로필로 브라우저 열기 (Google 봇 감지 우회)
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise Exception('playwright가 없습니다. pip install playwright && playwright install chromium 를 실행하세요.')
+
+    chrome_profile = os.path.expandvars(r'%LOCALAPPDATA%\Google\Chrome\User Data')
+
+    with sync_playwright() as p:
+        try:
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=chrome_profile,
+                channel='chrome',
+                headless=False,
+                args=['--no-first-run', '--no-default-browser-check'],
+            )
+        except Exception:
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context()
+
+        page = context.new_page()
+        page.goto('https://claude.ai')
+
+        deadline = _time.time() + timeout_s
+        while _time.time() < deadline:
+            _time.sleep(1)
+            try:
+                for c in context.cookies(['https://claude.ai']):
+                    if c['name'] == 'sessionKey' and c['value']:
+                        key = c['value']
+                        _time.sleep(0.5)
+                        context.close()
+                        return key
+            except Exception:
+                pass
+
+        try:
+            context.close()
+        except Exception:
+            pass
+        raise Exception(f'로그인 시간 초과 ({timeout_s}초). claude.ai에서 Google 로그인 후 다시 시도해주세요.')
 
 def claude_login(email, password):
     s = req_lib.Session()
@@ -700,6 +901,27 @@ def claude_login(email, password):
 # ─── MCP 라우터 ──────────────────────────────────────────
 
 TOOLS = [
+    {
+        'name': 'claude.store_session',
+        'description': '북마크릿에서 전달받은 세션 키를 로컬에 저장',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'session_key': {'type': 'string', 'description': '저장할 세션 키'},
+            },
+            'required': ['session_key'],
+        },
+    },
+    {
+        'name': 'claude.capture_session',
+        'description': 'Claude.ai 브라우저를 열어 Google/이메일 로그인 후 세션 키 자동 추출',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'timeout': {'type': 'integer', 'description': '최대 대기 시간(초, 기본 120)'},
+            },
+        },
+    },
     {
         'name': 'claude.login',
         'description': 'Claude.ai 계정(이메일+비밀번호)으로 로그인해서 세션 키 획득',
@@ -839,6 +1061,18 @@ def mcp():
         return jsonify({'jsonrpc': '2.0', 'id': req_id, 'result': {'tools': TOOLS}})
 
     if method == 'tools/call':
+        if name == 'claude.store_session':
+            try:
+                key = args.get('session_key', '').strip()
+                if not key:
+                    raise Exception('session_key가 비어있습니다.')
+                store_session_key(key)
+                return jsonify({'jsonrpc':'2.0','id':req_id,
+                                'result':{'content':[{'type':'json','json':{'ok':True}}]}})
+            except Exception as e:
+                return jsonify({'jsonrpc':'2.0','id':req_id,
+                                'error':{'code':-32000,'message':str(e)}})
+
         if name == 'calendar.ics':
             try:
                 events = fetch_ics_events(args.get('url', ''), int(args.get('days', 60)))
@@ -872,6 +1106,17 @@ def mcp():
             except Exception as e:
                 return jsonify({'jsonrpc': '2.0', 'id': req_id,
                                 'error': {'code': -32000, 'message': str(e)}})
+
+        if name == 'claude.capture_session':
+            try:
+                timeout = int(args.get('timeout', 120))
+                quick_only = bool(args.get('quick_only', False))
+                key = claude_capture_session(timeout, quick_only)
+                return jsonify({'jsonrpc':'2.0','id':req_id,
+                                'result':{'content':[{'type':'json','json':{'sessionKey':key}}]}})
+            except Exception as e:
+                return jsonify({'jsonrpc':'2.0','id':req_id,
+                                'error':{'code':-32000,'message':str(e)}})
 
         if name == 'claude.login':
             try:
@@ -952,4 +1197,4 @@ if __name__ == '__main__':
     print('주소: http://127.0.0.1:8765/mcp')
     print('종료: Ctrl+C')
     print('=' * 50)
-    app.run(host='127.0.0.1', port=8765, debug=False)
+    app.run(host='127.0.0.1', port=8765, debug=False, threaded=True)
