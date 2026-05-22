@@ -9,6 +9,7 @@ import {
   type GCalEvent,
 } from '@/services/googleCalendar'
 import type { Settings } from '@/types'
+import { getLunarDateStr, getLunarDateFull, getKoreanHoliday } from '@/utils/koreanCalendar'
 
 interface Props {
   calendar: CalendarState
@@ -19,6 +20,28 @@ type AccountEvent = GCalEvent & { accountId: string; accountName: string }
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 const COLORS = ['#111827', '#2563eb', '#059669', '#d97706', '#dc2626', '#db2777']
+
+const HOLIDAY_SHORT: Record<string, string> = {
+  '부처님오신날': '부처님날',
+  '설 전날': '설전날',
+  '설 다음날': '설다음',
+  '추석 전날': '추석전',
+  '추석 다음날': '추석후',
+  '설날 대체공휴일': '설대체',
+  '추석 대체공휴일': '추석대체',
+  '국회의원선거': '총선',
+  '대통령선거': '대선',
+  '지방선거': '지선',
+  '신정 대체공휴일': '신정대체',
+  '삼일절 대체공휴일': '삼일대체',
+  '어린이날 대체공휴일': '어린이대체',
+  '현충일 대체공휴일': '현충대체',
+  '광복절 대체공휴일': '광복대체',
+  '개천절 대체공휴일': '개천대체',
+  '한글날 대체공휴일': '한글대체',
+  '성탄절 대체공휴일': '성탄대체',
+}
+function shortHoliday(name: string) { return HOLIDAY_SHORT[name] ?? name }
 
 function calDays(year: number, month: number) {
   const first = new Date(year, month, 1).getDay()
@@ -149,6 +172,10 @@ export default function Calendar({ calendar, settings }: Props) {
   const localEvts = calendar.forDate(selected)
   const gcalEvtsForDay = gcalEvents.filter(e => gcalDateStr(e) === selected)
 
+  const [selY, selM, selD] = selected.split('-').map(Number)
+  const selectedLunar = getLunarDateFull(selY, selM, selD)
+  const selectedHoliday = getKoreanHoliday(selected)
+
   function hasEvent(dateStr: string) {
     return calendar.forDate(dateStr).length > 0 || gcalEvents.some(e => gcalDateStr(e) === dateStr)
   }
@@ -226,16 +253,22 @@ export default function Calendar({ calendar, settings }: Props) {
               const isSelected = dateStr === selected
               const isSun = i % 7 === 0
               const isSat = i % 7 === 6
+              const holiday = getKoreanHoliday(dateStr)
+              const lunar = getLunarDateStr(year, month + 1, day)
+              const isRed = isSun || !!holiday
+              const textColor = isSelected ? '' : isRed ? 'text-red-500' : isSat ? 'text-blue-500' : 'text-gray-700'
               return (
                 <button
                   key={day}
                   onClick={() => setSelected(dateStr)}
-                  className={`relative flex flex-col items-center py-2 rounded-lg text-sm transition-all ${
-                    isSelected ? 'bg-gray-900 text-white' : isToday ? 'bg-gray-100 text-gray-900 font-semibold' : 'hover:bg-surface text-gray-700'
-                  } ${!isSelected && isSun ? 'text-red-500' : ''} ${!isSelected && isSat ? 'text-blue-500' : ''}`}
+                  className={`relative flex flex-col items-center pt-1.5 pb-2 rounded-lg text-sm transition-all ${textColor} ${
+                    isSelected ? 'bg-gray-900 text-white' : isToday ? 'bg-gray-100 font-semibold' : 'hover:bg-surface'
+                  }`}
                 >
-                  {day}
-                  {hasEvent(dateStr) && <span className={`absolute bottom-1 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-gray-400'}`} />}
+                  <span className="leading-none">{day}</span>
+                  {lunar && <span className={`text-[9px] leading-none mt-0.5 ${isSelected ? 'text-gray-400' : 'text-gray-400'}`}>{lunar}</span>}
+                  {holiday && <span className={`text-[8px] leading-none mt-0.5 truncate w-full text-center px-0.5 ${isSelected ? 'text-red-300' : 'text-red-500'}`}>{shortHoliday(holiday)}</span>}
+                  {hasEvent(dateStr) && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-gray-400'}`} />}
                 </button>
               )
             })}
@@ -246,6 +279,8 @@ export default function Calendar({ calendar, settings }: Props) {
       <div className="w-72 shrink-0 bg-gray-50 border-l border-surface-border flex flex-col">
         <div className="p-4 border-b border-surface-border">
           <h3 className="text-sm font-semibold text-gray-900">{selected}</h3>
+          {selectedLunar && <p className="text-xs text-gray-500 mt-0.5">{selectedLunar}</p>}
+          {selectedHoliday && <p className="text-xs text-red-500 mt-0.5">{selectedHoliday}</p>}
           <p className="text-xs text-gray-400 mt-0.5">{localEvts.length + gcalEvtsForDay.length}개의 일정</p>
         </div>
 

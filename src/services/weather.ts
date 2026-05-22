@@ -30,6 +30,36 @@ export async function fetchWeather(city: string, apiKey: string): Promise<Weathe
   }
 }
 
+// 한글 도시명 → Open-Meteo 위경도 (14일 예보용)
+const CITY_COORDS: Record<string, [number, number]> = {
+  '화성': [37.1996, 126.8312],
+  '서울': [37.5665, 126.9780],
+  '수원': [37.2636, 127.0286],
+  '인천': [37.4563, 126.7052],
+  '부산': [35.1796, 129.0756],
+  '대구': [35.8722, 128.6025],
+  '대전': [36.3504, 127.3845],
+  '광주': [35.1595, 126.8526],
+  '울산': [35.5384, 129.3114],
+  '제주': [33.4996, 126.5312],
+  '성남': [37.4200, 127.1265],
+  '용인': [37.2411, 127.1776],
+}
+
+// WMO 날씨 코드 → 아이콘 코드
+function wmoToIcon(code: number): string {
+  if (code === 0) return '01d'
+  if (code <= 2) return '02d'
+  if (code === 3) return '04d'
+  if (code <= 48) return '50d'
+  if (code <= 57) return '09d'
+  if (code <= 67) return '10d'
+  if (code <= 77) return '13d'
+  if (code <= 82) return '09d'
+  if (code <= 86) return '13d'
+  return '11d'
+}
+
 // 한글 도시명 → wttr.in 영문 쿼리 (화성=Mars로 오인 방지)
 const CITY_QUERY: Record<string, string> = {
   '화성': 'Hwaseong, Gyeonggi, South Korea',
@@ -126,6 +156,24 @@ export async function fetchWeatherForecastFree(city: string): Promise<WeatherFor
     maxTemp: Math.round(parseFloat(day.maxtempC)),
     minTemp: Math.round(parseFloat(day.mintempC)),
     icon: wttrCodeToIcon(parseInt(day.hourly?.[4]?.weatherCode ?? '113')),
+  }))
+}
+
+// Open-Meteo로 14일 예보 조회 (API 키 불필요)
+export async function fetchWeatherForecast14Free(city: string): Promise<WeatherForecast[]> {
+  const coords = CITY_COORDS[city]
+  if (!coords) return fetchWeatherForecastFree(city)
+  const [lat, lon] = coords
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,weather_code&forecast_days=14&timezone=Asia%2FSeoul`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('Open-Meteo 14일 예보 조회 실패')
+  const data = await res.json()
+  const daily = data.daily
+  return (daily.time as string[]).map((date, i) => ({
+    date,
+    maxTemp: Math.round(daily.temperature_2m_max[i]),
+    minTemp: Math.round(daily.temperature_2m_min[i]),
+    icon: wmoToIcon(parseInt(daily.weather_code[i])),
   }))
 }
 

@@ -314,7 +314,7 @@ def fetch_forecast(city: str) -> list:
     url = (f'https://api.open-meteo.com/v1/forecast'
            f'?latitude={lat}&longitude={lon}'
            f'&daily=temperature_2m_max,temperature_2m_min,weather_code'
-           f'&timezone=Asia%2FSeoul&forecast_days=7')
+           f'&timezone=Asia%2FSeoul&forecast_days=14')
     resp = req_lib.get(url, timeout=8)
     resp.raise_for_status()
     data = resp.json()['daily']

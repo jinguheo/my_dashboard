@@ -8,7 +8,8 @@ import type { AIMessage, View, Settings, Todo } from '@/types'
 import type { TodoState } from '@/store/useTodos'
 import type { NoteState } from '@/store/useNotes'
 import type { CalendarState } from '@/store/useCalendar'
-import { fetchWeather, fetchWeatherFree, fetchWeatherForecastFree, fetchWeatherFromMcp, fetchWeatherForecastFromMcp, weatherEmoji, type WeatherData, type WeatherForecast } from '@/services/weather'
+import { fetchWeather, fetchWeatherFree, fetchWeatherForecast14Free, fetchWeatherFromMcp, fetchWeatherForecastFromMcp, weatherEmoji, type WeatherData, type WeatherForecast } from '@/services/weather'
+import { getKoreanHoliday } from '@/utils/koreanCalendar'
 import { streamChat, briefingSystem, strategicSystem, buildBriefingMessage } from '@/services/claude'
 import { streamChatOpenAI } from '@/services/openai'
 import { streamClaudeWeb } from '@/services/claudeWeb'
@@ -280,9 +281,9 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     if (settings.dataAccessMode === 'mcp' && settings.mcpEndpoint) {
       fetchWeatherForecastFromMcp(settings.mcpEndpoint, cities[0])
         .then(setForecast)
-        .catch(() => fetchWeatherForecastFree(cities[0]).then(setForecast).catch(() => {}))
+        .catch(() => fetchWeatherForecast14Free(cities[0]).then(setForecast).catch(() => {}))
     } else {
-      fetchWeatherForecastFree(cities[0]).then(setForecast).catch(() => {})
+      fetchWeatherForecast14Free(cities[0]).then(setForecast).catch(() => {})
     }
   }, [settings.mcpEndpoint, settings.weatherApiKey, settings.weatherCities, settings.city])
 
@@ -514,86 +515,89 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
 
       <div ref={containerRef} className="flex gap-0 items-start min-h-0" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
         <div className="space-y-5 min-w-0 overflow-hidden" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
-      <div className="grid grid-cols-3 gap-4 items-start">
-        {/* 남은 할 일 — 숫자 + 목록 통합 */}
-        <div
-          onClick={() => onNavigate('todos')}
-          className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
-        >
-          <p className="text-xs text-gray-500 mb-1">남은 할 일</p>
-          <p className="text-3xl font-bold text-blue-500">{todos.pending.length}</p>
-          {todos.pending.length > 0 ? (
-            <ul className="mt-2 space-y-1">
-              {todos.pending.slice(0, 3).map(t => (
-                <li key={t.id} className="flex items-center gap-1.5 text-xs text-gray-700 min-w-0">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    t.priority === 'high' ? 'bg-red-400' : t.priority === 'medium' ? 'bg-amber-400' : 'bg-blue-400'
-                  }`} />
-                  <span className="truncate">{t.text}</span>
-                </li>
-              ))}
-              {todos.pending.length > 3 && (
-                <li className="text-xs text-gray-400">+{todos.pending.length - 3}개 더</li>
-              )}
-            </ul>
-          ) : (
-            <p className="text-xs text-gray-400 mt-1">오늘 완료 {todos.completedToday.length}개</p>
-          )}
+      <div className="grid gap-3 items-start" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr 3fr' }}>
+        {/* 남은 할 일 */}
+        <div onClick={() => onNavigate('todos')} className="bg-surface border border-surface-border rounded-xl p-3 cursor-pointer hover:bg-surface-hover transition-colors">
+          <p className="text-[10px] text-gray-500">남은 할 일</p>
+          <p className="text-2xl font-bold text-blue-500">{todos.pending.length}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">완료 {todos.completedToday.length}개</p>
         </div>
-        {/* 높은 우선순위 — 숫자 + 목록 통합 */}
-        <div
-          onClick={() => onNavigate('todos')}
-          className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
-        >
-          <p className="text-xs text-gray-500 mb-1">높은 우선순위</p>
-          <p className="text-3xl font-bold text-red-500">{todos.highPriority.length}</p>
-          {todos.highPriority.length > 0 ? (
-            <ul className="mt-2 space-y-1">
-              {todos.highPriority.slice(0, 3).map(t => (
-                <li key={t.id} className="flex items-center gap-1.5 text-xs text-gray-700 min-w-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-                  <span className="truncate">{t.text}</span>
-                </li>
-              ))}
-              {todos.highPriority.length > 3 && (
-                <li className="text-xs text-gray-400">+{todos.highPriority.length - 3}개 더</li>
-              )}
-            </ul>
-          ) : (
-            <p className="text-xs text-gray-400 mt-1">먼저 확인할 일 없음</p>
-          )}
+        {/* 높은 우선순위 */}
+        <div onClick={() => onNavigate('todos')} className="bg-surface border border-surface-border rounded-xl p-3 cursor-pointer hover:bg-surface-hover transition-colors">
+          <p className="text-[10px] text-gray-500">높은 우선순위</p>
+          <p className="text-2xl font-bold text-red-500">{todos.highPriority.length}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{todos.highPriority.length > 0 ? '먼저 확인' : '없음'}</p>
         </div>
-        {/* 오늘 현황 — 우선순위 바 + 진행률 */}
-        <div className="bg-surface border border-surface-border rounded-xl p-4">
-          <p className="text-xs text-gray-500 mb-2">오늘 현황</p>
-          <div className="space-y-1.5">
+        {/* 오늘 현황 */}
+        <div className="bg-surface border border-surface-border rounded-xl p-3">
+          <p className="text-[10px] text-gray-500 mb-1.5">오늘 현황</p>
+          <div className="space-y-1">
             {(['high', 'medium', 'low'] as const).map(p => {
               const count = todos.pending.filter(t => t.priority === p).length
               return (
-                <div key={p} className="flex items-center gap-2">
-                  <span className={`text-xs w-6 shrink-0 ${PRIORITY_COLOR[p]}`}>{PRIORITY_LABEL[p]}</span>
-                  <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{
-                      width: todos.pending.length ? `${(count / todos.pending.length) * 100}%` : '0%',
-                      background: p === 'high' ? '#ef4444' : p === 'medium' ? '#f59e0b' : '#3b82f6',
-                    }} />
+                <div key={p} className="flex items-center gap-1.5">
+                  <span className={`text-[10px] w-5 shrink-0 ${PRIORITY_COLOR[p]}`}>{PRIORITY_LABEL[p]}</span>
+                  <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: todos.pending.length ? `${(count / todos.pending.length) * 100}%` : '0%', background: p === 'high' ? '#ef4444' : p === 'medium' ? '#f59e0b' : '#3b82f6' }} />
                   </div>
-                  <span className="text-xs text-gray-500 w-4 text-right shrink-0">{count}</span>
+                  <span className="text-[10px] text-gray-400 w-3 text-right">{count}</span>
                 </div>
               )
             })}
           </div>
-          <div className="pt-2 mt-2 border-t border-surface-border flex justify-between text-xs text-gray-500">
-            <span>전체 진행률</span>
-            <span className="font-medium text-gray-700">
-              {todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}
-            </span>
-          </div>
-          <div className="mt-1 w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-gray-800 rounded-full transition-all"
-              style={{ width: todos.todos.length > 0 ? `${(todos.completed.length / todos.todos.length) * 100}%` : '0%' }} />
-          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5 text-right">{todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}</p>
         </div>
+        {/* 최근 노트 */}
+        <div className="bg-surface border border-surface-border rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-gray-700">최근 노트</p>
+            <button onClick={() => onNavigate('notes')} className="text-[10px] text-gray-400 hover:text-gray-700">전체 보기</button>
+          </div>
+          {notes.notes.length === 0 ? (
+            <p className="text-[10px] text-gray-400">작성한 노트가 없습니다.</p>
+          ) : (
+            <ul className="space-y-1">
+              {notes.notes.slice(0, 5).map(n => (
+                <li key={n.id} className="cursor-pointer hover:text-gray-900" onClick={() => onNavigate('notes')}>
+                  <p className="text-xs text-gray-700 truncate">{n.title}</p>
+                  <p className="text-[9px] text-gray-400">{relativeTime(n.updatedAt)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {/* 매일 하는 일 — 전체 패널 */}
+        <DailyRoutinePanel
+          routine={routine}
+          todayTodos={todayTodos}
+          dailyLog={dailyLog}
+          onToggleTodo={todos.toggle}
+          onNavigate={onNavigate}
+          upcoming={[]}
+        />
+      </div>
+
+      {/* 다가오는 일정 — 5열 행 바로 아래 */}
+      <div className="bg-white border border-surface-border rounded-xl p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-gray-900">다가오는 일정</h2>
+          <button onClick={() => onNavigate('calendar')} className="text-xs text-gray-400 hover:text-gray-700">캘린더</button>
+        </div>
+        {upcoming.length === 0 ? (
+          <p className="text-xs text-gray-400">7일 내 일정이 없습니다.</p>
+        ) : (
+          <ul className="flex gap-4 overflow-x-auto">
+            {upcoming.slice(0, 5).map(e => (
+              <li key={e.id} className="flex items-center gap-2 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.color }} />
+                <div>
+                  <p className="text-xs text-gray-800 line-clamp-1">{e.title}</p>
+                  <p className="text-[10px] text-gray-400">{e.date}{e.time ? ` ${e.time}` : ''}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -601,41 +605,50 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       {order.map(panelId => {
         if (panelId === 'weather') return (
         <SortablePanelWrapper key="weather" id="weather" label="날씨" editMode={editMode}>
-      {/* 날씨 + 7일 예보 — 한 줄 */}
-      {weathers.length > 0 ? (
-        <div className="bg-surface border border-surface-border rounded-xl flex items-stretch divide-x divide-surface-border overflow-hidden">
-          {/* 도시별 날씨 */}
-          {weathers.map(w => (
-            <div key={w.city} className="flex items-center gap-2 px-3 py-2 min-w-0 shrink-0">
-              <span className="text-lg shrink-0">{weatherEmoji(w.icon)}</span>
-              <div className="min-w-0">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-sm font-bold text-gray-900">{w.temp}°</span>
-                  <span className="text-[11px] text-gray-500 truncate">{w.city}</span>
-                </div>
-                <div className="text-[10px] text-gray-400 truncate">{w.description} · 습도 {w.humidity}%</div>
-              </div>
-            </div>
-          ))}
-          {/* 예보 */}
-          {forecast.length > 0 && forecast.map((day, i) => {
-            const d = new Date(day.date + 'T00:00:00')
-            const todayMs = new Date().setHours(0, 0, 0, 0)
-            const diff = Math.round((d.getTime() - todayMs) / 86400000)
-            const label = diff === 0 ? '오늘' : diff === 1 ? '내일' : diff === 2 ? '모레'
-              : d.toLocaleDateString('ko-KR', { weekday: 'short' })
+      {/* 날씨 2주 예보 — 일요일 시작, 토요일 끝 */}
+      {forecast.length > 0 ? (
+        (() => {
+          const todayDate = new Date(); todayDate.setHours(0,0,0,0)
+          const todayMs = todayDate.getTime()
+          const DAY = ['일','월','화','수','목','금','토']
+          // 이번 주 일요일
+          const thisSunday = new Date(todayDate)
+          thisSunday.setDate(todayDate.getDate() - todayDate.getDay())
+          const fcMap = new Map(forecast.map(f => [f.date, f]))
+
+          const renderCell = (offset: number) => {
+            const d = new Date(thisSunday); d.setDate(thisSunday.getDate() + offset)
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+            const isPast = d.getTime() < todayMs
+            const isToday = d.getTime() === todayMs
+            const isSun = d.getDay() === 0
+            const isSat = d.getDay() === 6
+            const holiday = getKoreanHoliday(dateStr)
+            const isRed = (isSun || !!holiday) && !isToday
+            const fc = fcMap.get(dateStr)
             return (
-              <div key={day.date} className={`flex-1 flex flex-col items-center justify-center gap-0.5 px-1 py-2 ${i === 0 ? 'text-gray-700' : 'text-gray-400'}`}>
-                <span className="text-[10px] font-medium">{label}</span>
-                <span className="text-xs">{weatherEmoji(day.icon)}</span>
-                <div className="flex gap-0.5 text-[10px]">
-                  <span className="font-semibold text-gray-600">{day.maxTemp}°</span>
-                  <span className="text-gray-400">{day.minTemp}°</span>
-                </div>
+              <div key={dateStr} className={`flex flex-col items-center gap-0 px-0.5 py-1.5 rounded
+                ${isToday ? 'bg-gray-900 text-white' : isPast ? 'opacity-30 text-gray-400' : isRed ? 'text-red-500' : isSat ? 'text-blue-500' : 'text-gray-700'}`}>
+                <span className="text-[10px] font-medium leading-tight">{DAY[d.getDay()]}</span>
+                <span className={`text-[9px] leading-tight ${isToday ? 'text-gray-300' : 'text-gray-400'}`}>{d.getMonth()+1}/{d.getDate()}</span>
+                {fc ? (
+                  <>
+                    <span className="text-sm leading-snug">{weatherEmoji(fc.icon)}</span>
+                    <span className="text-[10px] font-semibold tabular-nums leading-tight">{fc.maxTemp}°</span>
+                    <span className={`text-[9px] tabular-nums leading-tight ${isToday ? 'text-gray-300' : 'text-gray-400'}`}>{fc.minTemp}°</span>
+                  </>
+                ) : <span className="text-xs leading-snug opacity-0">-</span>}
               </div>
             )
-          })}
-        </div>
+          }
+
+          return (
+            <div className="bg-surface border border-surface-border rounded-xl p-2 space-y-1">
+              <div className="grid grid-cols-7 gap-0.5">{Array.from({length:7},(_,i)=>renderCell(i))}</div>
+              <div className="border-t border-surface-border pt-1 grid grid-cols-7 gap-0.5">{Array.from({length:7},(_,i)=>renderCell(i+7))}</div>
+            </div>
+          )
+        })()
       ) : (
         <div
           onClick={() => onNavigate('settings')}
@@ -763,51 +776,8 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         )
         if (panelId === 'grid') return (
         <SortablePanelWrapper key="grid" id="grid" label="할 일/브리핑/일정/노트" editMode={editMode}>
-      <div className="grid grid-cols-3 gap-4 items-stretch">
-        {/* 왼쪽 열: 매일 하는 일 + 다가오는 일정 + 최근 노트 */}
-        <div className="flex flex-col gap-4">
-          <DailyRoutinePanel
-            routine={routine}
-            todayTodos={todayTodos}
-            dailyLog={dailyLog}
-            onToggleTodo={todos.toggle}
-            onNavigate={onNavigate}
-            upcoming={[]}
-          />
-          <Panel title="다가오는 일정" actionLabel="캘린더" onAction={() => onNavigate('calendar')}>
-            {upcoming.length === 0 ? (
-              <EmptyText>7일 내 일정이 없습니다.</EmptyText>
-            ) : (
-              <ul className="space-y-2">
-                {upcoming.slice(0, 5).map(e => (
-                  <li key={e.id} className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.color }} />
-                    <div className="min-w-0">
-                      <p className="text-sm text-gray-800 line-clamp-1">{e.title}</p>
-                      <p className="text-xs text-gray-500">{e.date}{e.time ? ` ${e.time}` : ''}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-          <Panel title={`최근 노트 ${notes.notes.length > 0 ? `(${notes.notes.length})` : ''}`} className="flex-1" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
-            {notes.notes.length === 0 ? (
-              <EmptyText>작성한 노트가 없습니다.</EmptyText>
-            ) : (
-              <ul className="space-y-2">
-                {notes.notes.slice(0, 5).map(n => (
-                  <li key={n.id} className="bg-surface border border-surface-border rounded-lg p-2.5 hover:bg-surface-hover cursor-pointer" onClick={() => onNavigate('notes')}>
-                    <p className="text-xs font-medium text-gray-800 line-clamp-1">{n.title}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{relativeTime(n.updatedAt)}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </div>
-
-        <Panel title="AI 뉴스" className="col-span-2">
+      <div className="grid grid-cols-1 gap-4 items-stretch">
+        <Panel title="AI 뉴스">
           {/* 헤더: 탭 + 새로고침 */}
           <div className="flex items-center gap-1 -mt-8 mb-3 flex-wrap">
             <div className="flex gap-0.5 flex-1 flex-wrap">
