@@ -1,12 +1,13 @@
 import { useState } from 'react'
 
-export const DEFAULT_PANELS = ['weather', 'shortcuts', 'stocks', 'grid'] as const
+export const DEFAULT_PANELS = ['weather', 'shortcuts', 'stocks', 'rss', 'grid'] as const
 export type PanelId = typeof DEFAULT_PANELS[number]
 
 export const PANEL_LABELS: Record<PanelId, string> = {
   weather: '날씨',
   shortcuts: '바로가기',
   stocks: '주식',
+  rss: 'RSS 피드',
   grid: '할 일 / 브리핑 / 일정 / 노트',
 }
 

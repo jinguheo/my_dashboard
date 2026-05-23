@@ -578,6 +578,45 @@ def _categorize(item):
         return 'LLM'
     return '전반'
 
+def fetch_rss_feeds(urls, max_per_feed=5):
+    """RSS/Atom 피드 파싱 (표준 라이브러리만 사용)"""
+    items = []
+    NS = {'atom': 'http://www.w3.org/2005/Atom'}
+    for url in urls:
+        try:
+            resp = req_lib.get(url.strip(), timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
+            resp.raise_for_status()
+            root = _ET.fromstring(resp.content)
+            tag = root.tag.lower()
+            # Atom feed
+            if 'atom' in tag or root.tag == '{http://www.w3.org/2005/Atom}feed':
+                feed_title = (root.findtext('{http://www.w3.org/2005/Atom}title') or url)
+                entries = root.findall('{http://www.w3.org/2005/Atom}entry')[:max_per_feed]
+                for e in entries:
+                    link_el = e.find('{http://www.w3.org/2005/Atom}link')
+                    link = link_el.get('href', '') if link_el is not None else ''
+                    items.append({
+                        'title': e.findtext('{http://www.w3.org/2005/Atom}title') or '',
+                        'link': link,
+                        'date': e.findtext('{http://www.w3.org/2005/Atom}updated') or e.findtext('{http://www.w3.org/2005/Atom}published') or '',
+                        'source': feed_title,
+                    })
+            else:
+                # RSS 2.0
+                channel = root.find('channel') or root
+                feed_title = channel.findtext('title') or url
+                for item in list(channel.findall('item'))[:max_per_feed]:
+                    items.append({
+                        'title': item.findtext('title') or '',
+                        'link': item.findtext('link') or '',
+                        'date': item.findtext('pubDate') or '',
+                        'source': feed_title,
+                    })
+        except Exception:
+            continue
+    return items
+
+
 def fetch_ai_news(max_results=25, query=''):
     """Reddit ML/LLM 커뮤니티 + HuggingFace 블로그 최신 AI 뉴스 (무료, 인증 불필요)"""
     items = []
@@ -960,6 +999,18 @@ TOOLS = [
         },
     },
     {
+        'name': 'rss.feed',
+        'description': 'RSS/Atom 피드 URL 목록에서 최신 항목 가져오기',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'urls':       {'type': 'array', 'items': {'type': 'string'}, 'description': 'RSS 피드 URL 목록'},
+                'maxPerFeed': {'type': 'integer', 'description': '피드당 최대 항목 수 (기본 5)'},
+            },
+            'required': ['urls'],
+        },
+    },
+    {
         'name': 'news.ai',
         'description': 'Hacker News에서 AI 관련 최신 뉴스 가져오기 (인증 불필요)',
         'inputSchema': {
@@ -1078,6 +1129,18 @@ def mcp():
                 events = fetch_ics_events(args.get('url', ''), int(args.get('days', 60)))
                 return jsonify({'jsonrpc': '2.0', 'id': req_id,
                                 'result': {'content': [{'type': 'json', 'json': events}]}})
+            except Exception as e:
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'error': {'code': -32000, 'message': str(e)}})
+
+        if name == 'rss.feed':
+            try:
+                items = fetch_rss_feeds(
+                    args.get('urls', []),
+                    int(args.get('maxPerFeed', 5)),
+                )
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'result': {'content': [{'type': 'json', 'json': items}]}})
             except Exception as e:
                 return jsonify({'jsonrpc': '2.0', 'id': req_id,
                                 'error': {'code': -32000, 'message': str(e)}})

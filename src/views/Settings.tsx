@@ -241,6 +241,29 @@ export default function SettingsView({ settings, onSave }: Props) {
             <Field label="OpenWeatherMap API 키" value={form.weatherApiKey} onChange={v => setField('weatherApiKey', v)} type="password" />
             <Field label="Finnhub API 키" value={form.finnhubApiKey} onChange={v => setField('finnhubApiKey', v)} type="password" />
           </Section>
+          <Section title="검색 · RSS">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-700">기본 검색 엔진</label>
+              <select
+                value={form.searchEngine || 'google'}
+                onChange={e => setField('searchEngine', e.target.value as any)}
+                className="w-full bg-white border border-surface-border text-gray-700 text-xs rounded-lg px-3 py-2 outline-none"
+              >
+                <option value="google">Google</option>
+                <option value="naver">Naver</option>
+                <option value="youtube">YouTube</option>
+                <option value="github">GitHub</option>
+                <option value="duckduckgo">DuckDuckGo</option>
+              </select>
+            </div>
+            <TextArea
+              label="RSS 피드 URL"
+              value={form.rssFeeds || ''}
+              onChange={v => setField('rssFeeds', v)}
+              placeholder={'https://feeds.feedburner.com/...\nhttps://hnrss.org/frontpage\nhttps://techcrunch.com/feed/'}
+            />
+            <p className="text-xs text-gray-400">한 줄에 하나씩 RSS/Atom 피드 URL을 입력하세요.</p>
+          </Section>
           <Section title="설정 파일 가져오기">
             <label className="block">
               <input

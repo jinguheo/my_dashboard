@@ -54,10 +54,18 @@ export function buildBriefingMessage(data: {
   completedToday: string[]
   upcomingEvents: string[]
   recentNotes: string[]
+  rssNews?: string[]
+  aiNews?: string[]
 }): string {
   const date = new Date().toLocaleDateString('ko-KR', {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
   })
+  const rssSection = data.rssNews && data.rssNews.length > 0
+    ? `\n- 오늘 뉴스 (RSS): ${data.rssNews.slice(0, 5).join(' / ')}`
+    : ''
+  const aiSection = data.aiNews && data.aiNews.length > 0
+    ? `\n- AI 기술 동향: ${data.aiNews.slice(0, 5).join(' / ')}`
+    : ''
   return `오늘 날짜: ${date}
 
 현재 상황:
@@ -65,9 +73,9 @@ export function buildBriefingMessage(data: {
 - 높은 우선순위: ${data.highPriority.join(', ') || '없음'}
 - 오늘 완료: ${data.completedToday.join(', ') || '없음'}
 - 다가오는 일정: ${data.upcomingEvents.join(', ') || '없음'}
-- 최근 노트: ${data.recentNotes.join(', ') || '없음'}
+- 최근 노트: ${data.recentNotes.join(', ') || '없음'}${rssSection}${aiSection}
 
-오늘 아침 브리핑을 해주세요. 핵심 집중 항목 3가지와 간략한 조언을 담아 250자 이내로 작성해주세요.`
+오늘 아침 브리핑을 해주세요. 할 일·일정 중심으로 핵심 집중 항목 3가지를 먼저 정리하고, 뉴스 중 주목할 내용이 있으면 한 줄 언급하세요. 350자 이내로 작성해주세요.`
 }
 
 export function buildReviewMessage(data: {

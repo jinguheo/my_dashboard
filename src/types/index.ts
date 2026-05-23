@@ -115,4 +115,7 @@ export interface Settings {
   slackChannelId: string
   telegramToken: string
   chatConnections: ChatConnection[]
+  // Search & RSS
+  searchEngine: 'google' | 'naver' | 'youtube' | 'github' | 'duckduckgo'
+  rssFeeds: string // 줄바꿈 구분 RSS URL 목록
 }

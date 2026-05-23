@@ -25,10 +25,13 @@ const DEFAULTS: Settings = {
   slackChannelId: '',
   telegramToken: '',
   chatConnections: [],
+  searchEngine: 'google',
+  rssFeeds: 'https://www.yna.co.kr/rss/society.xml\nhttps://news.hada.io/rss\nhttps://www.hankyung.com/feed/all-news',
 }
 
 function normalizeSettings(raw: Partial<Settings>): Settings {
   const merged = { ...DEFAULTS, ...raw }
+  if (!merged.rssFeeds) merged.rssFeeds = DEFAULTS.rssFeeds
 
   if ((!merged.mailAccounts || merged.mailAccounts.length === 0) && merged.gmailClientId) {
     merged.mailAccounts = [{

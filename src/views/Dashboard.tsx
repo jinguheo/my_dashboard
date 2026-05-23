@@ -10,6 +10,7 @@ import type { NoteState } from '@/store/useNotes'
 import type { CalendarState } from '@/store/useCalendar'
 import { fetchWeather, fetchWeatherFree, fetchWeatherForecast14Free, fetchWeatherFromMcp, fetchWeatherForecastFromMcp, weatherEmoji, type WeatherData, type WeatherForecast } from '@/services/weather'
 import { getKoreanHoliday } from '@/utils/koreanCalendar'
+import { fetchRssFeedsFromMcp, relativeRssDate, type RssItem } from '@/services/rss'
 import { streamChat, briefingSystem, strategicSystem, buildBriefingMessage } from '@/services/claude'
 import { streamChatOpenAI } from '@/services/openai'
 import { streamClaudeWeb } from '@/services/claudeWeb'
@@ -168,6 +169,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const NEWS_CATS = ['전체', '논문', 'LLM', 'Business', 'GitHub/HuggingFace', '전반'] as const
   const [newsCat, setNewsCat] = useState<string>('전체')
   const [newsError, setNewsError] = useState('')
+  const [rssItems, setRssItems] = useState<RssItem[]>([])
+  const [rssLoading, setRssLoading] = useState(false)
+  const [rssTab, setRssTab] = useState<string>('전체')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchEngine, setSearchEngine] = useState<string>(settings.searchEngine || 'google')
 
   async function fetchAiNews() {
     if (!settings.mcpEndpoint) return
@@ -183,6 +189,32 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       setLoadingNews(false)
     }
   }
+  const SEARCH_ENGINES: Record<string, { label: string; url: string }> = {
+    google:     { label: 'Google',     url: 'https://www.google.com/search?q=' },
+    naver:      { label: 'Naver',      url: 'https://search.naver.com/search.naver?query=' },
+    youtube:    { label: 'YouTube',    url: 'https://www.youtube.com/results?search_query=' },
+    github:     { label: 'GitHub',     url: 'https://github.com/search?q=' },
+    duckduckgo: { label: 'DDG',        url: 'https://duckduckgo.com/?q=' },
+  }
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+    const engine = SEARCH_ENGINES[searchEngine] ?? SEARCH_ENGINES.google
+    window.open(engine.url + encodeURIComponent(searchQuery), '_blank', 'noopener,noreferrer')
+    setSearchQuery('')
+  }
+
+  useEffect(() => {
+    const urls = (settings.rssFeeds || '').split('\n').map(u => u.trim()).filter(Boolean)
+    if (!urls.length || !settings.mcpEndpoint) return
+    setRssLoading(true)
+    fetchRssFeedsFromMcp(settings.mcpEndpoint, urls)
+      .then(setRssItems)
+      .catch(() => {})
+      .finally(() => setRssLoading(false))
+  }, [settings.rssFeeds, settings.mcpEndpoint])
+
   const [stocks, setStocks] = useState<StockQuote[]>([])
   const [stocksLoading, setStocksLoading] = useState(false)
   const [stockError, setStockError] = useState('')
@@ -357,6 +389,8 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       completedToday: todos.completedToday.map(t => t.text),
       upcomingEvents: upcoming.map(e => `${e.date} ${e.title}`),
       recentNotes: notes.notes.slice(0, 3).map(n => n.title),
+      rssNews: rssItems.slice(0, 8).map(it => `[${it.source}] ${it.title}`),
+      aiNews: aiNews.slice(0, 5).map(n => n.title),
     })
     try {
       let result = ''
@@ -382,6 +416,9 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     const stockSummary = stocks.map(q => `${q.symbol}: ${fmtPrice(q)} ${fmtChange(q)}`).join('\n')
     const routineSummary = routine.map(item => `- ${item}`).join('\n')
 
+    const rssSummary = rssItems.slice(0, 8).map(it => `- [${it.source}] ${it.title}`).join('\n')
+    const aiNewsSummary = aiNews.slice(0, 5).map(n => `- ${n.title}`).join('\n')
+
     return [
       `[현재 대시보드 상황]`,
       `매일 하는 일:\n${routineSummary || '없음'}`,
@@ -390,19 +427,34 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       `다가오는 일정:\n${events || '없음'}`,
       `최근 노트:\n${recentNotes || '없음'}`,
       `주식 정보:\n${stockSummary || '아직 불러오지 않음'}`,
-    ].join('\n\n')
+      rssSummary ? `오늘 뉴스 (RSS):\n${rssSummary}` : '',
+      aiNewsSummary ? `AI 기술 동향:\n${aiNewsSummary}` : '',
+    ].filter(Boolean).join('\n\n')
   }
 
   async function sendAiQuestion(question?: string) {
-    const content = (question ?? aiInput).trim()
-    if (!content || aiLoading) return
+    const raw = (question ?? aiInput).trim()
+    if (!raw || aiLoading) return
     if (!hasAiKey) { onNavigate('settings'); return }
+
+    const isBriefingRequest = /브리핑|briefing|오늘\s*요약|뉴스\s*요약/.test(raw)
+    const content = isBriefingRequest
+      ? buildBriefingMessage({
+          pending: todos.pending.map(t => t.text),
+          highPriority: todos.highPriority.map(t => t.text),
+          completedToday: todos.completedToday.map(t => t.text),
+          upcomingEvents: upcoming.map(e => `${e.date} ${e.title}`),
+          recentNotes: notes.notes.slice(0, 3).map(n => n.title),
+          rssNews: rssItems.slice(0, 8).map(it => `[${it.source}] ${it.title}`),
+          aiNews: aiNews.slice(0, 5).map(n => n.title),
+        })
+      : raw
 
     setAiInput('')
     setAiLoading(true)
-    logActivity('ai-chat', 'AI 어시스턴트 대화')
+    logActivity('ai-chat', isBriefingRequest ? 'AI 브리핑 (채팅)' : 'AI 어시스턴트 대화')
 
-    const userMessage: AIMessage = { role: 'user', content, timestamp: new Date().toISOString() }
+    const userMessage: AIMessage = { role: 'user', content: raw, timestamp: new Date().toISOString() }
     const assistantMessage: AIMessage = { role: 'assistant', content: '', timestamp: new Date().toISOString() }
     const nextMessages = [...aiMessages, userMessage, assistantMessage]
     setAiMessages(nextMessages)
@@ -512,6 +564,30 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           </button>
         </div>
       </div>
+
+      {/* 검색 바 */}
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <div className="flex bg-white border border-surface-border rounded-xl overflow-hidden flex-1 shadow-sm">
+          <select
+            value={searchEngine}
+            onChange={e => setSearchEngine(e.target.value)}
+            className="text-xs text-gray-500 bg-gray-50 border-r border-surface-border px-3 outline-none"
+          >
+            {Object.entries(SEARCH_ENGINES).map(([key, { label }]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="검색어를 입력하세요..."
+            className="flex-1 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none"
+          />
+        </div>
+        <button type="submit" className="px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white text-sm rounded-xl transition-colors">
+          검색
+        </button>
+      </form>
 
       <div ref={containerRef} className="flex gap-0 items-start min-h-0" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
         <div className="space-y-5 min-w-0 overflow-hidden" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
@@ -773,6 +849,62 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         )}
       </div>
       </SortablePanelWrapper>
+        )
+        if (panelId === 'rss') return (
+        <SortablePanelWrapper key="rss" id="rss" label="RSS 피드" editMode={editMode}>
+          {(() => {
+            const rssSources = ['전체', ...Array.from(new Set(rssItems.map(it => it.source))).filter(Boolean)]
+            const rssFiltered = rssTab === '전체' ? rssItems : rssItems.filter(it => it.source === rssTab)
+            return (
+              <Panel
+                title="RSS 피드"
+                actionLabel={rssLoading ? '...' : '새로고침'}
+                onAction={() => {
+                  const urls = (settings.rssFeeds || '').split('\n').map(u => u.trim()).filter(Boolean)
+                  if (!urls.length || !settings.mcpEndpoint) return
+                  setRssLoading(true)
+                  fetchRssFeedsFromMcp(settings.mcpEndpoint, urls).then(setRssItems).catch(() => {}).finally(() => setRssLoading(false))
+                }}
+              >
+                {rssItems.length > 0 && (
+                  <div className="flex gap-0.5 flex-wrap -mt-7 mb-2">
+                    {rssSources.map(src => (
+                      <button key={src} onClick={() => setRssTab(src)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                          rssTab === src ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}>
+                        {src}
+                        {src === '전체'
+                          ? <span className="ml-1 opacity-60">{rssItems.length}</span>
+                          : <span className="ml-1 opacity-60">{rssItems.filter(it => it.source === src).length}</span>
+                        }
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {rssFiltered.length === 0 && !rssLoading ? (
+                  <p className="text-xs text-gray-400 text-center py-2 cursor-pointer hover:text-gray-600" onClick={() => onNavigate('settings')}>
+                    설정 → RSS 피드 URL을 추가하세요.
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5 overflow-y-auto" style={{ maxHeight: '150px' }}>
+                    {rssFiltered.map((item, i) => (
+                      <li key={i}>
+                        <a href={item.link} target="_blank" rel="noopener noreferrer"
+                          className="flex items-start gap-2 px-1 py-1.5 rounded-lg hover:bg-surface group">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-800 font-medium line-clamp-1 group-hover:text-blue-600">{item.title}</p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">{item.source} · {relativeRssDate(item.date)}</p>
+                          </div>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+            )
+          })()}
+        </SortablePanelWrapper>
         )
         if (panelId === 'grid') return (
         <SortablePanelWrapper key="grid" id="grid" label="할 일/브리핑/일정/노트" editMode={editMode}>
