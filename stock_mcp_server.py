@@ -641,6 +641,220 @@ def fetch_ai_news(max_results=25, query=''):
 
 # ─── Claude.ai 웹 프록시 ─────────────────────────────────
 
+# ─── PDF summary ──────────────────────────────────────────
+
+def _normalize_pdf_text(text):
+    text = _re.sub(r'\s+', ' ', text or '').strip()
+    text = _re.sub(r'([.!?。！？])\s+', r'\1\n', text)
+    return text.strip()
+
+def _decode_pdf_literal(value):
+    value = value.replace(r'\(', '(').replace(r'\)', ')').replace(r'\\', '\\')
+    value = value.replace(r'\n', '\n').replace(r'\r', '\r').replace(r'\t', '\t')
+    try:
+        return value.encode('latin-1', errors='ignore').decode('utf-8', errors='ignore')
+    except Exception:
+        return value
+
+def _extract_pdf_strings(stream_text):
+    chunks = []
+    for match in _re.finditer(r'\((?:\\.|[^\\)])*\)\s*Tj', stream_text, _re.S):
+        chunks.append(_decode_pdf_literal(match.group(0)[1:match.group(0).rfind(')')]))
+    for arr in _re.finditer(r'\[(.*?)\]\s*TJ', stream_text, _re.S):
+        for part in _re.finditer(r'\((?:\\.|[^\\)])*\)', arr.group(1), _re.S):
+            chunks.append(_decode_pdf_literal(part.group(0)[1:-1]))
+    for hex_match in _re.finditer(r'<([0-9A-Fa-f\s]{4,})>\s*Tj', stream_text):
+        try:
+            raw = bytes.fromhex(_re.sub(r'\s+', '', hex_match.group(1)))
+            chunks.append(raw.decode('utf-16-be', errors='ignore') or raw.decode('utf-8', errors='ignore'))
+        except Exception:
+            pass
+    return ' '.join(c for c in chunks if c)
+
+def _basic_pdf_extract(pdf_bytes, max_pages=12):
+    import zlib as _zlib
+    texts = []
+    streams = list(_re.finditer(rb'stream\r?\n(.*?)\r?\nendstream', pdf_bytes, _re.S))
+    for stream in streams[:max(20, max_pages * 8)]:
+        raw = stream.group(1).strip(b'\r\n')
+        candidates = [raw]
+        try:
+            candidates.insert(0, _zlib.decompress(raw))
+        except Exception:
+            pass
+        for data in candidates:
+            try:
+                text = data.decode('latin-1', errors='ignore')
+            except Exception:
+                continue
+            extracted = _extract_pdf_strings(text)
+            if extracted:
+                texts.append(extracted)
+                break
+    return _normalize_pdf_text(' '.join(texts))
+
+def _library_pdf_extract(pdf_bytes, max_pages=12):
+    from io import BytesIO as _BytesIO
+    reader_cls = None
+    try:
+        from pypdf import PdfReader as reader_cls
+    except Exception:
+        try:
+            from PyPDF2 import PdfReader as reader_cls
+        except Exception:
+            reader_cls = None
+    if not reader_cls:
+        return '', None
+    reader = reader_cls(_BytesIO(pdf_bytes))
+    page_count = len(reader.pages)
+    texts = []
+    for page in reader.pages[:max_pages]:
+        try:
+            texts.append(page.extract_text() or '')
+        except Exception:
+            continue
+    return _normalize_pdf_text('\n'.join(texts)), page_count
+
+def _summarize_text(text, sentence_count=5):
+    clean = _normalize_pdf_text(text)
+    if not clean:
+        return '', []
+    sentences = [
+        s.strip()
+        for s in _re.split(r'(?<=[.!?。！？])\s+|\n+', clean)
+        if len(s.strip()) >= 20
+    ]
+    if not sentences:
+        sentences = [clean[:700]]
+    words = _re.findall(r'[A-Za-z가-힣0-9]{2,}', clean.lower())
+    freq = {}
+    for w in words:
+        freq[w] = freq.get(w, 0) + 1
+    scored = []
+    for i, sentence in enumerate(sentences[:80]):
+        tokens = _re.findall(r'[A-Za-z가-힣0-9]{2,}', sentence.lower())
+        score = sum(freq.get(t, 0) for t in tokens) / max(len(tokens), 1)
+        score += max(0, 8 - i) * 0.08
+        scored.append((score, i, sentence))
+    selected = sorted(scored, reverse=True)[:max(1, sentence_count)]
+    selected = [s for _, _, s in sorted(selected, key=lambda x: x[1])]
+    return ' '.join(selected)[:1800], selected
+
+def summarize_pdf_url(url, max_pages=12, summary_sentences=5):
+    from urllib.parse import urlparse as _urlparse, unquote as _unquote
+    parsed = _urlparse(url or '')
+    if parsed.scheme not in ('http', 'https'):
+        raise Exception('http 또는 https PDF 링크만 지원합니다.')
+    headers = {'User-Agent': 'Mozilla/5.0 MyDashboardMCP/1.0'}
+    resp = req_lib.get(url, timeout=20, headers=headers)
+    resp.raise_for_status()
+    content_type = (resp.headers.get('content-type') or '').lower()
+    if 'pdf' not in content_type and not parsed.path.lower().endswith('.pdf'):
+        raise Exception('PDF 링크가 아닌 것으로 보입니다.')
+    pdf_bytes = resp.content
+    if len(pdf_bytes) > 25 * 1024 * 1024:
+        raise Exception('PDF가 너무 큽니다. 25MB 이하 문서만 지원합니다.')
+
+    text, page_count = _library_pdf_extract(pdf_bytes, max_pages)
+    extractor = 'pypdf'
+    if not text:
+        text = _basic_pdf_extract(pdf_bytes, max_pages)
+        extractor = 'basic'
+    if not text:
+        raise Exception('PDF에서 텍스트를 추출하지 못했습니다. 스캔 이미지 PDF일 수 있습니다.')
+
+    summary, key_points = _summarize_text(text, summary_sentences)
+    title = _unquote(parsed.path.rsplit('/', 1)[-1] or 'document.pdf')
+    return {
+        'url': url,
+        'title': title,
+        'summary': summary,
+        'keyPoints': key_points,
+        'textPreview': text[:1200],
+        'charCount': len(text),
+        'pageCount': page_count,
+        'pagesRead': max_pages,
+        'extractor': extractor,
+    }
+
+def summarize_web_url(url, summary_sentences=5):
+    from html.parser import HTMLParser as _HTMLParser
+    from urllib.parse import urlparse as _urlparse
+
+    parsed = _urlparse(url or '')
+    if parsed.scheme not in ('http', 'https'):
+        raise Exception('http 또는 https URL만 지원합니다.')
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+    }
+    resp = req_lib.get(url, timeout=15, headers=headers, allow_redirects=True)
+    resp.raise_for_status()
+
+    content_type = (resp.headers.get('content-type') or '').lower()
+    if 'pdf' in content_type or parsed.path.lower().endswith('.pdf'):
+        raise Exception('PDF 파일은 pdf.summarize 툴을 사용하세요.')
+
+    class _TextExtractor(_HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.texts = []
+            self.title = ''
+            self._in_title = False
+            self._depth = 0
+            self._skip_tags = {'script', 'style', 'noscript', 'nav', 'footer', 'aside', 'header', 'iframe', 'form'}
+            self._skip_depth = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in self._skip_tags:
+                self._skip_depth += 1
+            if tag == 'title':
+                self._in_title = True
+
+        def handle_endtag(self, tag):
+            if tag in self._skip_tags and self._skip_depth > 0:
+                self._skip_depth -= 1
+            if tag == 'title':
+                self._in_title = False
+
+        def handle_data(self, data):
+            if self._in_title:
+                self.title += data
+            elif self._skip_depth == 0:
+                stripped = data.strip()
+                if len(stripped) > 1:
+                    self.texts.append(stripped)
+
+    try:
+        html = resp.content.decode(resp.apparent_encoding or 'utf-8', errors='replace')
+    except Exception:
+        html = resp.text
+
+    extractor = _TextExtractor()
+    extractor.feed(html)
+
+    title = extractor.title.strip() or parsed.netloc
+    text = _re.sub(r'\s+', ' ', ' '.join(extractor.texts)).strip()
+    text = text[:25000]
+
+    if not text:
+        raise Exception('페이지에서 텍스트를 추출하지 못했습니다.')
+
+    summary, key_points = _summarize_text(text, summary_sentences)
+    return {
+        'url': url,
+        'title': title,
+        'summary': summary,
+        'keyPoints': key_points,
+        'textPreview': text[:1200],
+        'charCount': len(text),
+        'pageCount': None,
+        'pagesRead': 1,
+        'extractor': 'web',
+    }
+
 import json as _json
 import uuid as _uuid
 
@@ -1051,6 +1265,31 @@ TOOLS = [
         },
     },
     {
+        'name': 'pdf.summarize',
+        'description': 'PDF URL을 다운로드해 텍스트를 추출하고 핵심 내용을 요약',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'url': {'type': 'string', 'description': '요약할 PDF 링크'},
+                'maxPages': {'type': 'integer', 'description': '읽을 최대 페이지 수 (기본 12)'},
+                'summarySentences': {'type': 'integer', 'description': '요약 문장 수 (기본 5)'},
+            },
+            'required': ['url'],
+        },
+    },
+    {
+        'name': 'web.summarize',
+        'description': '웹페이지 URL의 HTML 본문 텍스트를 추출하고 핵심 내용을 요약',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'url': {'type': 'string', 'description': '요약할 웹페이지 URL'},
+                'summarySentences': {'type': 'integer', 'description': '요약 문장 수 (기본 5)'},
+            },
+            'required': ['url'],
+        },
+    },
+    {
         'name': 'stocks.watchlist',
         'description': 'Yahoo Finance에서 관심 종목/지수 시세 조회',
         'inputSchema': {
@@ -1218,6 +1457,31 @@ def mcp():
                 return jsonify({'jsonrpc': '2.0', 'id': req_id,
                                 'error': {'code': -32000, 'message': str(e)}})
 
+        if name == 'pdf.summarize':
+            try:
+                result = summarize_pdf_url(
+                    args.get('url', ''),
+                    int(args.get('maxPages', 12)),
+                    int(args.get('summarySentences', 5)),
+                )
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'result': {'content': [{'type': 'json', 'json': result}]}})
+            except Exception as e:
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'error': {'code': -32000, 'message': str(e)}})
+
+        if name == 'web.summarize':
+            try:
+                result = summarize_web_url(
+                    args.get('url', ''),
+                    int(args.get('summarySentences', 5)),
+                )
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'result': {'content': [{'type': 'json', 'json': result}]}})
+            except Exception as e:
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'error': {'code': -32000, 'message': str(e)}})
+
         if name == 'stocks.watchlist':
             symbols = args.get('symbols', [])
             logging.info(f'시세 요청: {symbols}')
@@ -1252,6 +1516,25 @@ def mcp():
 
     return jsonify({'jsonrpc': '2.0', 'id': req_id,
                     'error': {'code': -32601, 'message': f'Unknown method: {method}'}})
+
+
+@app.route('/restart', methods=['POST'])
+def restart_servers():
+    import subprocess
+    ps_cmd = (
+        "Start-Sleep -Seconds 1; "
+        "$p8765 = (netstat -ano | Select-String ':8765.*LISTENING' | ForEach-Object { $_.ToString().Trim().Split()[-1] } | Select-Object -First 1); "
+        "$p5173 = (netstat -ano | Select-String ':5173.*LISTENING' | ForEach-Object { $_.ToString().Trim().Split()[-1] } | Select-Object -First 1); "
+        "if ($p8765) { Stop-Process -Id ([int]$p8765) -Force -ErrorAction SilentlyContinue }; "
+        "if ($p5173) { Stop-Process -Id ([int]$p5173) -Force -ErrorAction SilentlyContinue }; "
+        "Start-Sleep -Seconds 1; "
+        "Start-Process -FilePath 'D:\\MyWork\\my-dashboard\\start_dashboard.bat' -WindowStyle Hidden"
+    )
+    subprocess.Popen(
+        ['powershell', '-WindowStyle', 'Hidden', '-NonInteractive', '-Command', ps_cmd],
+        creationflags=0x00000008 | 0x08000000
+    )
+    return jsonify({'success': True, 'message': '서버 재시작 중...'})
 
 
 if __name__ == '__main__':

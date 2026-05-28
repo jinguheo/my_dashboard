@@ -36,6 +36,18 @@ interface Props {
   onUpdateSettings?: (patch: Partial<Settings>) => void
 }
 
+interface PdfSummary {
+  url: string
+  title: string
+  summary: string
+  keyPoints: string[]
+  textPreview: string
+  charCount: number
+  pageCount?: number | null
+  pagesRead: number
+  extractor: string
+}
+
 const PRIORITY_COLOR = { high: 'text-red-500', medium: 'text-amber-500', low: 'text-blue-500' }
 const PRIORITY_LABEL = { high: '높음', medium: '중간', low: '낮음' }
 
@@ -224,6 +236,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [aiLoading, setAiLoading] = useState(false)
   const [shortcutUrl, setShortcutUrl] = useState('')
   const [shortcutError, setShortcutError] = useState('')
+  const [pdfUrl, setPdfUrl] = useState('')
+  const [activePdfUrl, setActivePdfUrl] = useState('')
+  const [pdfSummary, setPdfSummary] = useState<PdfSummary | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState('')
   const [stockInput, setStockInput] = useState('')
   const [showStockInput, setShowStockInput] = useState(false)
 
@@ -418,6 +435,15 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
 
     const rssSummary = rssItems.slice(0, 8).map(it => `- [${it.source}] ${it.title}`).join('\n')
     const aiNewsSummary = aiNews.slice(0, 5).map(n => `- ${n.title}`).join('\n')
+    const pdfContext = pdfSummary
+      ? [
+          `문서명: ${pdfSummary.title}`,
+          `PDF URL: ${pdfSummary.url}`,
+          `요약: ${pdfSummary.summary}`,
+          `핵심 문장:\n${pdfSummary.keyPoints.map(p => `- ${p}`).join('\n')}`,
+          `본문 미리보기:\n${pdfSummary.textPreview}`,
+        ].join('\n')
+      : ''
 
     return [
       `[현재 대시보드 상황]`,
@@ -429,7 +455,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       `주식 정보:\n${stockSummary || '아직 불러오지 않음'}`,
       rssSummary ? `오늘 뉴스 (RSS):\n${rssSummary}` : '',
       aiNewsSummary ? `AI 기술 동향:\n${aiNewsSummary}` : '',
-    ].filter(Boolean).join('\n\n')
+    ].filter(Boolean).join('\n\n') + (pdfContext ? `\n\nCurrent PDF document:\n${pdfContext}` : '')
   }
 
   async function sendAiQuestion(question?: string) {
@@ -519,6 +545,54 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     }
   }
 
+  async function handlePdfSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const url = pdfUrl.trim()
+    if (!url) return
+    if (!settings.mcpEndpoint) {
+      setPdfError('MCP 엔드포인트가 필요합니다.')
+      onNavigate('settings')
+      return
+    }
+    const isPdf = /\.pdf(\?|#|$)/i.test(url)
+    const tool = isPdf ? 'pdf.summarize' : 'web.summarize'
+    const toolArgs = isPdf
+      ? { url, maxPages: 12, summarySentences: 5 }
+      : { url, summarySentences: 5 }
+
+    setActivePdfUrl(isPdf ? url : '')
+    setPdfLoading(true)
+    setPdfError('')
+    setPdfSummary(null)
+    try {
+      const { callMcpTool } = await import('@/services/mcp')
+      const result = await callMcpTool<PdfSummary>(
+        settings.mcpEndpoint,
+        tool,
+        toolArgs,
+        undefined,
+        30000,
+      )
+      setPdfSummary(result)
+      logActivity('pdf', `요약: ${result.title || url}`)
+      if (hasAiKey) {
+        const kind = isPdf ? 'PDF 문서' : '웹페이지'
+        setAiMessages(p => [
+          ...p,
+          {
+            role: 'assistant',
+            content: `${kind}를 읽었습니다: ${result.title}\n\n${result.summary}\n\n이제 오른쪽 질문창에서 이 내용에 대해 물어보세요.`,
+            timestamp: new Date().toISOString(),
+          },
+        ])
+      }
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : '내용을 요약하지 못했습니다.')
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
   function handleAddShortcut(e: React.FormEvent) {
     e.preventDefault()
     const value = shortcutUrl.trim()
@@ -540,6 +614,17 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           <p className="text-gray-500 text-sm mt-0.5">{formatDate()}</p>
         </div>
         <div className="flex gap-2 text-sm items-center">
+          <button
+            onClick={async () => {
+              try {
+                await fetch('http://127.0.0.1:8765/restart', { method: 'POST' })
+              } catch {}
+            }}
+            title="MCP · Vite 서버 재시작"
+            className="px-2.5 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors text-xs"
+          >
+            ↺ 서버 재시작
+          </button>
           <button onClick={() => onNavigate('todos')} className="px-3 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-700 hover:bg-surface-hover transition-colors">
             할 일 관리
           </button>
@@ -591,7 +676,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
 
       <div ref={containerRef} className="flex gap-0 items-start min-h-0" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
         <div className="space-y-5 min-w-0 overflow-hidden" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
-      <div className="grid gap-3 items-start" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr 3fr' }}>
+      <div className="grid gap-3 items-start" style={{ gridTemplateColumns: '1fr 1fr 1fr 3fr' }}>
         {/* 남은 할 일 */}
         <div onClick={() => onNavigate('todos')} className="bg-surface border border-surface-border rounded-xl p-3 cursor-pointer hover:bg-surface-hover transition-colors">
           <p className="text-[10px] text-gray-500">남은 할 일</p>
@@ -622,25 +707,6 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             })}
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5 text-right">{todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}</p>
-        </div>
-        {/* 최근 노트 */}
-        <div className="bg-surface border border-surface-border rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-gray-700">최근 노트</p>
-            <button onClick={() => onNavigate('notes')} className="text-[10px] text-gray-400 hover:text-gray-700">전체 보기</button>
-          </div>
-          {notes.notes.length === 0 ? (
-            <p className="text-[10px] text-gray-400">작성한 노트가 없습니다.</p>
-          ) : (
-            <ul className="space-y-1">
-              {notes.notes.slice(0, 5).map(n => (
-                <li key={n.id} className="cursor-pointer hover:text-gray-900" onClick={() => onNavigate('notes')}>
-                  <p className="text-xs text-gray-700 truncate">{n.title}</p>
-                  <p className="text-[9px] text-gray-400">{relativeTime(n.updatedAt)}</p>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
         {/* 매일 하는 일 — 전체 패널 */}
         <DailyRoutinePanel
@@ -675,6 +741,73 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           </ul>
         )}
       </div>
+
+      <Panel title="PDF / 웹 요약">
+        <form onSubmit={handlePdfSubmit} className="flex gap-2">
+          <input
+            value={pdfUrl}
+            onChange={e => {
+              setPdfUrl(e.target.value)
+              if (pdfError) setPdfError('')
+            }}
+            placeholder="PDF 또는 웹 URL 입력: https://example.com/file.pdf"
+            className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
+          />
+          <button
+            type="submit"
+            disabled={!pdfUrl.trim() || pdfLoading}
+            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40"
+          >
+            {pdfLoading ? '요약 중...' : '요약'}
+          </button>
+        </form>
+        {pdfError && <p className="text-xs text-red-500">{pdfError}</p>}
+        {(activePdfUrl || pdfSummary) && (
+          <div className={activePdfUrl ? 'grid grid-cols-[minmax(0,1fr)_260px] gap-3' : ''}>
+            {activePdfUrl && (
+              <div className="h-80 overflow-hidden rounded-lg border border-surface-border bg-gray-50">
+                <iframe src={activePdfUrl} title="PDF preview" className="h-full w-full border-0" />
+              </div>
+            )}
+            <div className={`rounded-lg bg-surface border border-surface-border p-3 overflow-y-auto h-80 ${!activePdfUrl ? 'w-full' : ''}`}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-xs font-semibold text-gray-700 truncate">
+                  {pdfSummary?.title || (pdfSummary?.extractor === 'web' ? '웹페이지' : 'PDF 문서')}
+                </p>
+                {pdfSummary && (
+                  <button
+                    onClick={() => sendAiQuestion('방금 읽은 내용을 쉽게 요약하고, 내가 바로 실행할 수 있는 다음 행동 3가지를 알려줘')}
+                    className="px-2 py-1 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700"
+                  >
+                    AI 해석
+                  </button>
+                )}
+              </div>
+              {pdfLoading ? (
+                <p className="text-xs text-gray-400">MCP가 내용을 읽는 중입니다...</p>
+              ) : pdfSummary ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{pdfSummary.summary}</p>
+                  {pdfSummary.keyPoints.length > 0 && (
+                    <ul className="space-y-1">
+                      {pdfSummary.keyPoints.slice(0, 4).map((point, idx) => (
+                        <li key={idx} className="text-[11px] text-gray-500 leading-snug">- {point}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-[10px] text-gray-400">
+                    {pdfSummary.pageCount ? `${pdfSummary.pageCount}p · ` : ''}
+                    {pdfSummary.charCount.toLocaleString()}자 추출
+                    {pdfSummary.extractor === 'web' ? ' · 웹' : ''}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">요약 결과가 여기에 표시되고, 오른쪽 AI 대화가 이 내용을 참고합니다.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Panel>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={order} strategy={verticalListSortingStrategy}>
@@ -852,6 +985,21 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         )
         if (panelId === 'rss') return (
         <SortablePanelWrapper key="rss" id="rss" label="RSS 피드" editMode={editMode}>
+          <div className="space-y-4">
+            <Panel title="최근 노트" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
+              {notes.notes.length === 0 ? (
+                <p className="text-xs text-gray-400">작성한 노트가 없습니다.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {notes.notes.slice(0, 5).map(n => (
+                    <li key={n.id} className="cursor-pointer hover:text-gray-900" onClick={() => onNavigate('notes')}>
+                      <p className="text-xs text-gray-700 truncate">{n.title}</p>
+                      <p className="text-[10px] text-gray-400">{relativeTime(n.updatedAt)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
           {(() => {
             const rssSources = ['전체', ...Array.from(new Set(rssItems.map(it => it.source))).filter(Boolean)]
             const rssFiltered = rssTab === '전체' ? rssItems : rssItems.filter(it => it.source === rssTab)
@@ -904,6 +1052,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               </Panel>
             )
           })()}
+          </div>
         </SortablePanelWrapper>
         )
         if (panelId === 'grid') return (
@@ -999,6 +1148,21 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                 onClear={() => setAiMessages([])}
                 onNavigateSettings={() => onNavigate('settings')}
                 onPrompt={sendAiQuestion}
+                pdfPanel={
+                  <PdfMcpPanel
+                    pdfUrl={pdfUrl}
+                    activePdfUrl={activePdfUrl}
+                    summary={pdfSummary}
+                    loading={pdfLoading}
+                    error={pdfError}
+                    onUrlChange={value => {
+                      setPdfUrl(value)
+                      if (pdfError) setPdfError('')
+                    }}
+                    onSubmit={handlePdfSubmit}
+                    onAskAi={() => sendAiQuestion('방금 읽은 내용을 쉽게 요약하고, 내가 바로 실행할 수 있는 다음 행동 3가지를 알려줘')}
+                  />
+                }
               />
             </div>
           </>
@@ -1184,6 +1348,81 @@ function StatCard({ label, value, sub, color, onClick, setupRequired = false }: 
   )
 }
 
+function PdfMcpPanel({
+  pdfUrl,
+  activePdfUrl,
+  summary,
+  loading,
+  error,
+  onUrlChange,
+  onSubmit,
+  onAskAi,
+}: {
+  pdfUrl: string
+  activePdfUrl: string
+  summary: PdfSummary | null
+  loading: boolean
+  error: string
+  onUrlChange: (value: string) => void
+  onSubmit: (e: React.FormEvent) => void
+  onAskAi: () => void
+}) {
+  const isWeb = summary?.extractor === 'web'
+  return (
+    <section className="bg-white p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-xs font-semibold text-gray-500">PDF / 웹 요약</h2>
+        {summary && (
+          <button
+            type="button"
+            onClick={onAskAi}
+            className="px-2 py-0.5 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700"
+          >
+            AI 해석
+          </button>
+        )}
+      </div>
+      <form onSubmit={onSubmit} className="flex gap-1.5">
+        <input
+          value={pdfUrl}
+          onChange={e => onUrlChange(e.target.value)}
+          placeholder="PDF 또는 웹 URL"
+          className="min-w-0 flex-1 bg-surface border border-surface-border rounded-lg px-2.5 py-1.5 text-xs text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
+        />
+        <button
+          type="submit"
+          disabled={!pdfUrl.trim() || loading}
+          className="px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-700 disabled:opacity-40 shrink-0"
+        >
+          {loading ? '요약 중' : '요약'}
+        </button>
+      </form>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      {activePdfUrl && (
+        <div className="h-32 overflow-hidden rounded-lg border border-surface-border bg-gray-50">
+          <iframe src={activePdfUrl} title="PDF preview" className="h-full w-full border-0" />
+        </div>
+      )}
+      {(loading || summary) && (
+        <div className="rounded-lg bg-surface border border-surface-border p-2 max-h-40 overflow-y-auto">
+          {loading ? (
+            <p className="text-xs text-gray-400">내용을 읽는 중입니다...</p>
+          ) : summary ? (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-gray-700 truncate">{summary.title}</p>
+              <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{summary.summary}</p>
+              <p className="text-[10px] text-gray-400">
+                {summary.pageCount ? `${summary.pageCount}p · ` : ''}
+                {summary.charCount.toLocaleString()}자{isWeb ? ' · 웹' : ''}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function DashboardAiPanel({
   messages,
   input,
@@ -1195,6 +1434,7 @@ function DashboardAiPanel({
   onClear,
   onNavigateSettings,
   onPrompt,
+  pdfPanel,
 }: {
   messages: AIMessage[]
   input: string
@@ -1206,6 +1446,7 @@ function DashboardAiPanel({
   onClear: () => void
   onNavigateSettings: () => void
   onPrompt: (prompt: string) => void
+  pdfPanel?: React.ReactNode
 }) {
   const suggestions = [
     '오늘 제일 먼저 처리할 일을 정리해줘',
@@ -1268,6 +1509,8 @@ function DashboardAiPanel({
         <div ref={bottomRef} />
       </div>
 
+      {pdfPanel && <div className="border-t border-surface-border">{pdfPanel}</div>}
+
       <div className="p-3 border-t border-surface-border">
         <textarea
           value={input}
@@ -1302,6 +1545,8 @@ function Panel({ title, children, className = '', actionLabel, onAction }: {
   actionLabel?: string
   onAction?: () => void
 }) {
+  if (title.startsWith('PDF')) return null
+
   return (
     <section className={`bg-white border border-surface-border rounded-xl p-4 space-y-3 ${className}`}>
       <div className="flex items-center justify-between">

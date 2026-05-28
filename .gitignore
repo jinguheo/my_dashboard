@@ -2,7 +2,9 @@ node_modules/
 dist/
 dist-electron/
 .build-check/
+.build-check-pdf/
 .playwright-mcp/
+__pycache__/
 
 .env
 .env.*
@@ -13,6 +15,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 vite-dev*.log
+mcp-server.log
 
 *.local
 
@@ -22,3 +25,8 @@ dashboard-initial.png
 email-view.png
 final-dashboard.png
 .claude_session_key
+
+# 스크린샷
+*.png
+test_imap.py
+vite-server.log
