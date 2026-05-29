@@ -888,6 +888,23 @@ def _get_org(session_key):
     return orgs[0]['uuid']
 
 def claude_web_chat(session_key, messages, system=''):
+    # 1순위: Chrome 익스텐션 브릿지 (가장 안정적, Cloudflare 완전 우회)
+    if _is_bridge_available():
+        try:
+            logging.info('브릿지(익스텐션) 방식으로 Claude.ai 요청')
+            return _bridge_chat(messages, system)
+        except Exception as e:
+            logging.warning(f'브릿지 실패, CDP 폴백: {e}')
+
+    # 2순위: CDP (Chrome Dashboard 바로가기로 열었을 때)
+    try:
+        if _cdp_get_ws():
+            logging.info('CDP 방식으로 Claude.ai 요청')
+            return claude_web_chat_cdp(messages, system)
+    except Exception as e:
+        logging.warning(f'CDP 실패, requests 방식 폴백: {e}')
+
+    # 3순위: requests + 쿠키 (기존 방식)
     org_id = _get_org(session_key)
 
     # 마지막 user 메시지를 prompt로 추출
@@ -972,32 +989,113 @@ def load_session_key_cache():
         return _SESSION_CACHE.read_text(encoding='utf-8').strip() or None
     return None
 
-def _read_chrome_via_cdp(port=9222):
-    """실행 중인 Chrome의 CDP로 claude.ai sessionKey 읽기 (--remote-debugging-port 필요)"""
+def _cdp_get_ws(port=9222):
+    """CDP 웹소켓 URL 반환 (claude.ai 탭 우선, 없으면 첫 번째 탭)"""
     import urllib.request, json as _json
     try:
         r = urllib.request.urlopen(f'http://localhost:{port}/json', timeout=2)
         tabs = _json.loads(r.read())
     except Exception:
         return None
-
-    # claude.ai 탭 찾기
-    ws_url = None
     for tab in tabs:
         if 'claude.ai' in tab.get('url', '') and tab.get('webSocketDebuggerUrl'):
-            ws_url = tab['webSocketDebuggerUrl']
-            break
+            return tab['webSocketDebuggerUrl']
+    for tab in tabs:
+        if tab.get('webSocketDebuggerUrl'):
+            return tab['webSocketDebuggerUrl']
+    return None
+
+
+def _cdp_eval(ws_url, js, timeout=60):
+    """CDP Runtime.evaluate로 JS 실행 후 결과 반환"""
+    import websocket as _ws, json as _json
+    ws = _ws.WebSocket()
+    ws.connect(ws_url, timeout=10)
+    ws.send(_json.dumps({'id': 1, 'method': 'Runtime.evaluate',
+                         'params': {'expression': js, 'awaitPromise': True,
+                                    'returnByValue': True, 'timeout': timeout * 1000}}))
+    ws.settimeout(timeout + 5)
+    result = _json.loads(ws.recv())
+    ws.close()
+    return result.get('result', {}).get('result', {}).get('value')
+
+
+def claude_web_chat_cdp(messages, system='', port=9222):
+    """CDP로 Chrome 브라우저 안에서 직접 fetch() 실행 (Cloudflare 완전 우회)"""
+    import json as _json
+    ws_url = _cdp_get_ws(port)
     if not ws_url:
-        # 탭 없으면 첫 번째 탭 사용
-        for tab in tabs:
-            if tab.get('webSocketDebuggerUrl'):
-                ws_url = tab['webSocketDebuggerUrl']
-                break
+        raise Exception('CDP 포트가 없습니다. Chrome(Dashboard) 바로가기로 Chrome을 실행해주세요.')
+
+    prompt = ''
+    for m in reversed(messages):
+        if m.get('role') == 'user':
+            prompt = m.get('content', '')
+            break
+    if system:
+        prompt = f'{system}\n\n---\n\n{prompt}'
+
+    # 1. org_id 가져오기
+    org_js = """
+fetch('https://claude.ai/api/organizations', {credentials:'include'})
+  .then(r=>r.json()).then(d=>d[0]?.uuid||'')
+"""
+    org_id = _cdp_eval(ws_url, org_js, timeout=10)
+    if not org_id:
+        raise Exception('org_id를 가져올 수 없습니다. claude.ai에 로그인되어 있는지 확인하세요.')
+
+    import uuid as _uuid
+    conv_id = str(_uuid.uuid4())
+
+    # 2. 대화 생성
+    create_js = f"""
+fetch('https://claude.ai/api/organizations/{org_id}/chat_conversations',
+  {{method:'POST',credentials:'include',headers:{{'content-type':'application/json'}},
+   body:JSON.stringify({{name:'',uuid:'{conv_id}'}})
+  }}).then(r=>r.status+'')
+"""
+    _cdp_eval(ws_url, create_js, timeout=10)
+
+    # 3. 메시지 전송 및 SSE 읽기
+    body = _json.dumps({
+        'prompt': prompt, 'model': 'claude-sonnet-4-5',
+        'timezone': 'Asia/Seoul', 'attachments': [], 'files': [],
+        'rendering_mode': 'messages', 'tools': [],
+    })
+    chat_js = f"""
+(async () => {{
+  const r = await fetch('https://claude.ai/api/organizations/{org_id}/chat_conversations/{conv_id}/completion',
+    {{method:'POST',credentials:'include',
+     headers:{{'content-type':'application/json','accept':'text/event-stream'}},
+     body:{_json.dumps(body)}
+    }});
+  const text = await r.text();
+  let full = '';
+  for (const line of text.split('\\n')) {{
+    if (!line.startsWith('data: ')) continue;
+    try {{
+      const d = JSON.parse(line.slice(6));
+      if (d.type==='content_block_delta') full += d.delta?.text||'';
+      else if (d.completion) full = d.completion;
+    }} catch(e) {{}}
+  }}
+  return full;
+}})()
+"""
+    result = _cdp_eval(ws_url, chat_js, timeout=90)
+    if result is None:
+        raise Exception('CDP 응답이 없습니다.')
+    return result
+
+
+def _read_chrome_via_cdp(port=9222):
+    """실행 중인 Chrome의 CDP로 claude.ai sessionKey 읽기 (--remote-debugging-port 필요)"""
+    ws_url = _cdp_get_ws(port)
     if not ws_url:
         return None
 
     try:
-        import websocket
+        import websocket, json as _json
         ws = websocket.WebSocket()
         ws.connect(ws_url, timeout=5)
         ws.send(_json.dumps({'id': 1, 'method': 'Network.getCookies',
@@ -1612,6 +1710,101 @@ def mcp():
     return jsonify({'jsonrpc': '2.0', 'id': req_id,
                     'error': {'code': -32601, 'message': f'Unknown method: {method}'}})
 
+
+# ─── Chrome Extension 브릿지 ─────────────────────────────────────────────────
+import threading as _threading
+_bridge_lock = _threading.Lock()
+_bridge_queue = {}   # id → request dict
+_bridge_result = {}  # id → response dict
+
+@app.route('/bridge/poll', methods=['GET'])
+def bridge_poll():
+    """익스텐션이 주기적으로 폴링 — 처리할 요청 하나 반환"""
+    with _bridge_lock:
+        for task_id, task in list(_bridge_queue.items()):
+            if task.get('claimed'):
+                continue
+            task['claimed'] = True
+            return jsonify(task)
+    return jsonify(None)
+
+@app.route('/bridge/response', methods=['POST'])
+def bridge_response():
+    """익스텐션이 처리 결과 반환"""
+    data = request.get_json(force=True)
+    task_id = data.get('id')
+    if task_id:
+        with _bridge_lock:
+            _bridge_result[task_id] = data
+    return jsonify({'ok': True})
+
+@app.route('/bridge/status', methods=['GET'])
+def bridge_status():
+    """익스텐션 연결 여부 확인용"""
+    return jsonify({'ok': True})
+
+def _bridge_chat(messages, system='', timeout=60):
+    """브릿지를 통해 Claude.ai 호출 (익스텐션 필요)"""
+    import uuid as _uuid, time as _t
+    task_id = str(_uuid.uuid4())
+
+    prompt = ''
+    for m in reversed(messages):
+        if m.get('role') == 'user':
+            prompt = m.get('content', '')
+            break
+    if system:
+        prompt = f'{system}\n\n---\n\n{prompt}'
+
+    task = {
+        'id': task_id,
+        'org_id': None,   # 익스텐션이 직접 가져옴
+        'conv_id': str(_uuid.uuid4()),
+        'body': {
+            'prompt': prompt,
+            'model': 'claude-sonnet-4-5',
+            'timezone': 'Asia/Seoul',
+            'attachments': [], 'files': [],
+            'rendering_mode': 'messages', 'tools': [],
+        },
+        'claimed': False,
+    }
+
+    with _bridge_lock:
+        _bridge_queue[task_id] = task
+
+    deadline = _t.time() + timeout
+    try:
+        while _t.time() < deadline:
+            _t.sleep(0.5)
+            with _bridge_lock:
+                result = _bridge_result.get(task_id)
+            if result:
+                with _bridge_lock:
+                    _bridge_result.pop(task_id, None)
+                    _bridge_queue.pop(task_id, None)
+                if result.get('error'):
+                    raise Exception(result['error'])
+                return result.get('text', '')
+        raise Exception('브릿지 응답 타임아웃 — Chrome이 열려 있고 익스텐션이 활성화되어 있는지 확인하세요.')
+    finally:
+        with _bridge_lock:
+            _bridge_queue.pop(task_id, None)
+
+def _is_bridge_available():
+    """익스텐션(브릿지)이 연결되어 있는지 빠르게 확인"""
+    # 최근 10초 내 poll 요청이 왔으면 연결된 것으로 간주
+    return _bridge_last_poll.get('ts', 0) > (_time.time() - 10)
+
+_bridge_last_poll = {}
+
+# poll 시 마지막 시간 기록
+_orig_bridge_poll = bridge_poll
+def bridge_poll():
+    _bridge_last_poll['ts'] = _time.time()
+    return _orig_bridge_poll()
+# 라우트 재등록
+app.view_functions['bridge_poll'] = bridge_poll
 
 @app.route('/restart', methods=['POST'])
 def restart_servers():
