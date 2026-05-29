@@ -13,7 +13,7 @@ export function useNotes() {
     localStorage.setItem(KEY, JSON.stringify(notes))
   }, [notes])
 
-  const create = useCallback((title = '새 노트'): string => {
+  const create = useCallback((title = ''): string => {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     setNotes(p => [{ id, title, content: '', tags: [], createdAt: now, updatedAt: now }, ...p])

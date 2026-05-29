@@ -859,14 +859,22 @@ import json as _json
 import uuid as _uuid
 
 _CLAUDE_BASE = 'https://claude.ai'
+_COOKIE_CACHE = {}
 
 def _ch(session_key):
+    # 캐시된 전체 쿠키가 있으면 모두 포함 (cf_clearance 등 Cloudflare 쿠키)
+    all_cookies = _COOKIE_CACHE.get('all_cookies', {})
+    if all_cookies and 'sessionKey' in all_cookies:
+        cookie_str = '; '.join(f'{k}={v}' for k, v in all_cookies.items())
+    else:
+        cookie_str = f'sessionKey={session_key}'
     return {
-        'cookie': f'sessionKey={session_key}',
+        'cookie': cookie_str,
         'content-type': 'application/json',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'origin': 'https://claude.ai',
         'referer': 'https://claude.ai/new',
+        'anthropic-client-version': '1.0.0',
     }
 
 def _get_org(session_key):
@@ -905,14 +913,17 @@ def claude_web_chat(session_key, messages, system=''):
         'tools': [],
     }
 
-    # 429 대응: 최대 2회 재시도 (30초 대기)
+    # 429/403 대응: 최대 3회 재시도
+    current_key = session_key
     for attempt in range(3):
+        cur_hdrs_base = _ch(current_key)
+        cur_hdrs = {**cur_hdrs_base, 'accept': 'text/event-stream'}
         conv_id = str(_uuid.uuid4())
         req_lib.post(f'{_CLAUDE_BASE}/api/organizations/{org_id}/chat_conversations',
-                     json={'name': '', 'uuid': conv_id}, headers=hdrs_base, timeout=10)
+                     json={'name': '', 'uuid': conv_id}, headers=cur_hdrs_base, timeout=10)
         r = req_lib.post(
             f'{_CLAUDE_BASE}/api/organizations/{org_id}/chat_conversations/{conv_id}/completion',
-            json=body, headers=hdrs, stream=True, timeout=90)
+            json=body, headers=cur_hdrs, stream=True, timeout=90)
         if r.status_code == 429:
             if attempt < 2:
                 wait = int(r.headers.get('retry-after', 30))
@@ -920,6 +931,18 @@ def claude_web_chat(session_key, messages, system=''):
                 _time.sleep(min(wait, 60))
                 continue
             raise Exception('요청 한도 초과(429). 잠시 후 다시 시도하세요.')
+        if r.status_code == 403:
+            if attempt < 2:
+                logging.warning(f'Claude.ai 403 — 세션 키 재추출 후 재시도 (시도 {attempt+1}/3)')
+                try:
+                    fresh_key = _read_chrome_session_key() or _read_chrome_via_cdp()
+                    if fresh_key:
+                        current_key = fresh_key
+                        org_id = _get_org(current_key)
+                        continue
+                except Exception:
+                    pass
+            raise Exception('세션 만료(403). 설정에서 Claude.ai를 다시 연결해주세요.')
         r.raise_for_status()
         break
     full = ''
@@ -1022,14 +1045,24 @@ def _read_chrome_session_key():
     if not aes_key:
         return None
 
+    def _decrypt_val(enc_val):
+        if not enc_val or enc_val[:3] != b'v10':
+            return None
+        try:
+            from Crypto.Cipher import AES
+            iv, payload = enc_val[3:15], enc_val[15:]
+            return AES.new(aes_key, AES.MODE_GCM, iv).decrypt(payload[:-16]).decode('utf-8')
+        except Exception:
+            return None
+
     # 쿠키 DB 임시 복사 (Chrome 실행 중 lock 우회)
     tmp = tempfile.mktemp(suffix='.db')
     shutil.copy2(cookie_src, tmp)
     try:
         conn = sqlite3.connect(tmp)
-        row = conn.execute(
-            "SELECT encrypted_value FROM cookies WHERE host_key LIKE '%claude.ai%' AND name='sessionKey'"
-        ).fetchone()
+        rows = conn.execute(
+            "SELECT name, encrypted_value FROM cookies WHERE host_key LIKE '%claude.ai%'"
+        ).fetchall()
         conn.close()
     finally:
         try:
@@ -1037,20 +1070,21 @@ def _read_chrome_session_key():
         except Exception:
             pass
 
-    if not row:
+    cookies = {}
+    session_key = None
+    for name, enc_val in rows:
+        val = _decrypt_val(enc_val)
+        if val:
+            cookies[name] = val
+            if name == 'sessionKey':
+                session_key = val
+
+    if not session_key:
         return None
 
-    enc_val = row[0]
-    if enc_val[:3] != b'v10':
-        return None  # 구버전 포맷은 미지원
-
-    try:
-        from Crypto.Cipher import AES
-        iv, payload = enc_val[3:15], enc_val[15:]
-        decrypted = AES.new(aes_key, AES.MODE_GCM, iv).decrypt(payload[:-16])
-        return decrypted.decode('utf-8')
-    except Exception:
-        return None
+    # cf_clearance 등 Cloudflare 쿠키를 캐시에 저장
+    _COOKIE_CACHE['all_cookies'] = cookies
+    return session_key
 
 
 def claude_capture_session(timeout_s=120, quick_only=False):
@@ -1154,6 +1188,41 @@ def claude_login(email, password):
 # ─── MCP 라우터 ──────────────────────────────────────────
 
 TOOLS = [
+    {
+        'name': 'kg.add',
+        'description': 'Mental Avatar 지식 그래프에 텍스트/노트 추가',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'title':       {'type': 'string'},
+                'content':     {'type': 'string'},
+                'source_type': {'type': 'string', 'description': 'note|url|pdf|chat'},
+            },
+            'required': ['content'],
+        },
+    },
+    {
+        'name': 'kg.search',
+        'description': 'Mental Avatar 지식 그래프 시맨틱 검색',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'q':     {'type': 'string'},
+                'limit': {'type': 'integer'},
+            },
+            'required': ['q'],
+        },
+    },
+    {
+        'name': 'kg.summary',
+        'description': 'Mental Avatar 1인칭 자기 요약 (관심사·트렌드·지식갭)',
+        'inputSchema': {'type': 'object', 'properties': {}},
+    },
+    {
+        'name': 'kg.stats',
+        'description': 'Mental Avatar 지식 그래프 통계',
+        'inputSchema': {'type': 'object', 'properties': {}},
+    },
     {
         'name': 'claude.store_session',
         'description': '북마크릿에서 전달받은 세션 키를 로컬에 저장',
@@ -1351,6 +1420,32 @@ def mcp():
         return jsonify({'jsonrpc': '2.0', 'id': req_id, 'result': {'tools': TOOLS}})
 
     if method == 'tools/call':
+        if name.startswith('kg.'):
+            try:
+                import requests as _rq
+                AV = 'http://127.0.0.1:8766'
+                if name == 'kg.add':
+                    r = _rq.post(f'{AV}/ingest', json={
+                        'title': args.get('title', ''),
+                        'content': args.get('content', ''),
+                        'source_type': args.get('source_type', 'note'),
+                    }, timeout=60).json()
+                elif name == 'kg.search':
+                    r = _rq.get(f'{AV}/search', params={
+                        'q': args.get('q', ''), 'limit': args.get('limit', 10)
+                    }, timeout=30).json()
+                elif name == 'kg.summary':
+                    r = _rq.get(f'{AV}/avatar/summary', timeout=60).json()
+                elif name == 'kg.stats':
+                    r = _rq.get(f'{AV}/stats', timeout=10).json()
+                else:
+                    raise Exception(f'Unknown kg tool: {name}')
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'result': {'content': [{'type': 'json', 'json': r}]}})
+            except Exception as e:
+                return jsonify({'jsonrpc': '2.0', 'id': req_id,
+                                'error': {'code': -32000, 'message': f'Mental Avatar 연결 실패: {e}'}})
+
         if name == 'claude.store_session':
             try:
                 key = args.get('session_key', '').strip()
