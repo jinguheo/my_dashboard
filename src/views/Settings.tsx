@@ -897,19 +897,44 @@ function ClaudeWebLoginBlock({
 
   if (sessionKey) {
     return (
-      <div className="flex items-center justify-between gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
-        <div>
-          <p className="text-sm font-medium text-green-800">Claude.ai 연결됨</p>
-          <p className="text-xs text-green-600 mt-0.5">AI 뷰에서 프로바이더를 "Claude.ai 구독"으로 선택하세요.</p>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
+          <div>
+            <p className="text-sm font-medium text-green-800">Claude.ai 연결됨</p>
+            <p className="text-xs text-green-600 mt-0.5">AI 뷰에서 프로바이더를 "Claude.ai 구독"으로 선택하세요.</p>
+          </div>
+          <button type="button" onClick={() => { onSessionKey(''); setSuccess('') }}
+            className="text-xs text-red-500 hover:text-red-700 shrink-0">연결 해제</button>
         </div>
-        <button type="button" onClick={() => { onSessionKey(''); setSuccess('') }}
-          className="text-xs text-red-500 hover:text-red-700 shrink-0">연결 해제</button>
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+          <p className="text-xs font-semibold text-blue-800">💡 안정적인 연결 유지 — Chrome 익스텐션 브릿지</p>
+          <p className="text-xs text-blue-700">세션 만료·Cloudflare 차단 없이 <b>Chrome 로그인 상태를 그대로</b> 사용합니다. 한 번 설치하면 영구 유지됩니다.</p>
+          <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+            <li>Chrome 주소창 → <code className="bg-blue-100 px-1 rounded">chrome://extensions</code></li>
+            <li>우측 상단 <b>개발자 모드</b> 켜기</li>
+            <li><b>압축해제된 확장 프로그램 로드</b> 클릭</li>
+            <li>폴더 선택: <code className="bg-blue-100 px-1 rounded">D:\MyWork\my-dashboard\chrome-extension</code></li>
+            <li>Claude.ai에 로그인된 상태 유지 → 자동 연결</li>
+          </ol>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-3">
+      {/* 브릿지 안내 */}
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+        <p className="text-xs font-semibold text-blue-800">💡 권장 — Chrome 익스텐션 브릿지 (한 번 설치로 영구 사용)</p>
+        <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+          <li>Chrome 주소창 → <code className="bg-blue-100 px-1 rounded">chrome://extensions</code></li>
+          <li>우측 상단 <b>개발자 모드</b> 켜기</li>
+          <li><b>압축해제된 확장 프로그램 로드</b> 클릭</li>
+          <li>폴더: <code className="bg-blue-100 px-1 rounded">D:\MyWork\my-dashboard\chrome-extension</code></li>
+          <li>Claude.ai 탭에 로그인 유지 → 자동 연결</li>
+        </ol>
+      </div>
+      <p className="text-xs text-gray-400 text-center">— 또는 아래에서 세션 키 직접 가져오기 —</p>
       {/* 탭 */}
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl">
         {([['google', 'Google 계정'], ['email', '이메일 계정']] as const).map(([t, label]) => (
