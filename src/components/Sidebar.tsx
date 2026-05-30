@@ -9,8 +9,10 @@ const nav: NavItem[] = [
   { id: 'calendar',  label: '캘린더', icon: '◫' },
   { id: 'email',     label: '이메일', icon: '✉' },
   { id: 'chat',      label: '채팅',  icon: '◎' },
-  { id: 'ai',        label: 'AI',   icon: '✦' },
-  { id: 'history',   label: '기록',  icon: '◷' },
+  { id: 'ai',        label: 'AI',       icon: '✦' },
+  { id: 'knowledge', label: '지식 그래프', icon: '⬡' },
+  { id: 'avatar',    label: '아바타',    icon: '◉' },
+  { id: 'history',   label: '기록',      icon: '◷' },
 ]
 
 interface Props {

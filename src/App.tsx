@@ -9,6 +9,8 @@ import Email from '@/views/Email'
 import Chat from '@/views/Chat'
 import Settings from '@/views/Settings'
 import History from '@/views/History'
+import KnowledgeGraph from '@/views/KnowledgeGraph'
+import AvatarStudio from '@/views/AvatarStudio'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
 import { useNotes } from '@/store/useNotes'
@@ -117,7 +119,9 @@ export default function App() {
         {view === 'chat'     && <Chat settings={settings} onNavigate={handleNavigate} />}
         {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} onProviderChange={(p) => updateSettings({ aiProvider: p })} />}
         {view === 'settings' && <Settings settings={settings} onSave={updateSettings} />}
-        {view === 'history'  && <History />}
+        {view === 'history'   && <History />}
+        {view === 'knowledge' && <KnowledgeGraph settings={settings} />}
+        {view === 'avatar'    && <AvatarStudio />}
       </main>
 
       {/* In-app toast */}
