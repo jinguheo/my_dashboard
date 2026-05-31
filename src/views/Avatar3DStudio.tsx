@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as THREE from 'three'
-import Anthropic from '@anthropic-ai/sdk'
+import { streamClaudeWeb } from '@/services/claudeWeb'
 import type { Settings } from '@/types'
 
 const API = 'http://127.0.0.1:8766'
@@ -330,7 +330,7 @@ export default function Avatar3DStudio({ settings }: Props) {
     }
   }, [])
 
-  // ─── Claude API 채팅 ─────────────────────────────────────────────────
+  // ─── Claude.ai 세션 채팅 ─────────────────────────────────────────────
   const sendMessage = useCallback(async () => {
     if (!input.trim() || chatLoading) return
     const userMsg: ChatMsg = { role: 'user', content: input.trim() }
@@ -339,25 +339,23 @@ export default function Avatar3DStudio({ settings }: Props) {
     setChatLoading(true)
 
     try {
-      const apiKey = settings.anthropicApiKey
-      if (!apiKey) throw new Error('Anthropic API Key가 설정에 없습니다')
+      const sessionKey = settings.claudeSessionKey
+      const mcpEndpoint = settings.mcpEndpoint
+      if (!sessionKey) throw new Error('Claude.ai 세션이 연결되지 않았습니다. 설정에서 연결해주세요.')
 
-      const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
       const history = [...messages, userMsg].slice(-10)
+      const system = '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.'
 
-      const res = await client.messages.create({
-        model: 'claude-haiku-4-5',
-        max_tokens: 512,
-        system: '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.',
-        messages: history.map(m => ({ role: m.role, content: m.content })),
+      let reply = ''
+      await streamClaudeWeb(sessionKey, mcpEndpoint, history, system, (delta) => {
+        reply += delta
       })
 
-      const reply = res.content[0].type === 'text' ? res.content[0].text : ''
       const assistantMsg: ChatMsg = { role: 'assistant', content: reply }
       setMessages(prev => [...prev, assistantMsg])
 
       // TTS 재생
-      await playTTS(reply)
+      if (reply) await playTTS(reply)
     } catch (e) {
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -366,7 +364,7 @@ export default function Avatar3DStudio({ settings }: Props) {
     } finally {
       setChatLoading(false)
     }
-  }, [input, chatLoading, messages, settings.anthropicApiKey])
+  }, [input, chatLoading, messages, settings.claudeSessionKey, settings.mcpEndpoint])
 
   // ─── XTTS TTS + Web Audio 립싱크 ────────────────────────────────────
   const playTTS = useCallback(async (text: string) => {
@@ -499,7 +497,9 @@ export default function Avatar3DStudio({ settings }: Props) {
       <div className="w-80 flex flex-col border-l border-gray-800 bg-gray-900">
         <div className="px-4 py-3 border-b border-gray-800">
           <h2 className="text-sm font-semibold text-gray-200">아바타 대화</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Claude API · XTTS 음성</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {settings.claudeSessionKey ? '🟢 Claude.ai 연결됨 · XTTS 음성' : '🔴 Claude.ai 미연결'}
+          </p>
         </div>
 
         {/* 메시지 목록 */}
@@ -536,9 +536,9 @@ export default function Avatar3DStudio({ settings }: Props) {
 
         {/* 입력 */}
         <div className="p-3 border-t border-gray-800">
-          {!settings.anthropicApiKey && (
+          {!settings.claudeSessionKey && (
             <p className="text-xs text-amber-500 mb-2">
-              ⚠ 설정에서 Anthropic API Key를 입력해주세요
+              ⚠ 설정 → AI 제공자에서 Claude.ai를 연결해주세요
             </p>
           )}
           <div className="flex gap-2">
@@ -551,7 +551,7 @@ export default function Avatar3DStudio({ settings }: Props) {
             />
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || chatLoading || !settings.anthropicApiKey}
+              disabled={!input.trim() || chatLoading || !settings.claudeSessionKey}
               className="px-3 py-2 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-800 disabled:text-gray-600 text-sm rounded-xl transition"
             >
               ↑
