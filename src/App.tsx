@@ -11,6 +11,7 @@ import Settings from '@/views/Settings'
 import History from '@/views/History'
 import KnowledgeGraph from '@/views/KnowledgeGraph'
 import AvatarStudio from '@/views/AvatarStudio'
+import Avatar3DStudio from '@/views/Avatar3DStudio'
 import Journal from '@/views/Journal'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
@@ -126,6 +127,7 @@ export default function App() {
         {view === 'knowledge' && <KnowledgeGraph settings={settings} />}
         {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
         {view === 'avatar'    && <AvatarStudio />}
+        {view === 'avatar3d'  && <Avatar3DStudio settings={settings} />}
       </main>
 
       {/* In-app toast */}

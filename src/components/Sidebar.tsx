@@ -13,6 +13,7 @@ const nav: NavItem[] = [
   { id: 'knowledge', label: '지식 그래프', icon: '⬡' },
   { id: 'journal',   label: '저널',       icon: '✍' },
   { id: 'avatar',    label: '아바타',    icon: '◉' },
+  { id: 'avatar3d',  label: '3D 아바타', icon: '◈' },
   { id: 'history',   label: '기록',      icon: '◷' },
 ]
 
