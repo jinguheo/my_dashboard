@@ -11,6 +11,7 @@ const nav: NavItem[] = [
   { id: 'chat',      label: '채팅',  icon: '◎' },
   { id: 'ai',        label: 'AI',       icon: '✦' },
   { id: 'knowledge', label: '지식 그래프', icon: '⬡' },
+  { id: 'journal',   label: '저널',       icon: '✍' },
   { id: 'avatar',    label: '아바타',    icon: '◉' },
   { id: 'history',   label: '기록',      icon: '◷' },
 ]

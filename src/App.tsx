@@ -11,10 +11,12 @@ import Settings from '@/views/Settings'
 import History from '@/views/History'
 import KnowledgeGraph from '@/views/KnowledgeGraph'
 import AvatarStudio from '@/views/AvatarStudio'
+import Journal from '@/views/Journal'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
 import { useNotes } from '@/store/useNotes'
 import { useCalendar } from '@/store/useCalendar'
+import { useJournal } from '@/store/useJournal'
 import { useSettings } from '@/store/useSettings'
 import { usePolling } from '@/hooks/usePolling'
 import { saveSnapshot, hasSnapshotToday, todayStr } from '@/services/snapshot'
@@ -34,6 +36,7 @@ export default function App() {
   const notes = useNotes()
   const calendar = useCalendar()
   const { settings, updateSettings } = useSettings()
+  const journal = useJournal()
 
   const noAi = !settings.anthropicApiKey && !settings.claudeSessionKey && !settings.openaiApiKey && !settings.customAiEndpoint
   const [showWizard, setShowWizard] = useState(() => noAi && !localStorage.getItem('wizard-skipped'))
@@ -121,6 +124,7 @@ export default function App() {
         {view === 'settings' && <Settings settings={settings} onSave={updateSettings} />}
         {view === 'history'   && <History />}
         {view === 'knowledge' && <KnowledgeGraph settings={settings} />}
+        {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
         {view === 'avatar'    && <AvatarStudio />}
       </main>
 
