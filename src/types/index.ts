@@ -1,5 +1,5 @@
 export type Priority = 'high' | 'medium' | 'low'
-export type View = 'dashboard' | 'todos' | 'notes' | 'calendar' | 'ai' | 'email' | 'chat' | 'settings' | 'history' | 'knowledge' | 'avatar'
+export type View = 'dashboard' | 'todos' | 'notes' | 'calendar' | 'ai' | 'email' | 'chat' | 'settings' | 'history' | 'knowledge' | 'avatar' | 'journal'
 
 export interface Todo {
   id: string
@@ -86,6 +86,19 @@ export interface ChatConnection {
   messagesTool?: string
   auth?: ConnectionAuth
   extraArgs?: Record<string, unknown>
+}
+
+export interface JournalEntry {
+  id: string
+  content: string
+  tags: string[]
+  autoTags: string[]
+  createdAt: string
+}
+
+export interface JournalAnalysis {
+  keywords: string[]
+  analyzedAt: string
 }
 
 export type AiProvider = 'claude' | 'chatgpt' | 'custom' | 'claude-web'
