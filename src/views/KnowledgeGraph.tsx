@@ -26,8 +26,8 @@ interface GraphData { nodes: GraphNode[]; edges: GraphEdge[] }
 interface Stats { nodes: number; edges: number; topics: number; vector_count: number; by_source: Record<string, number> }
 
 // ── 헬퍼 ──────────────────────────────────────────────
-async function apiFetch(path: string) {
-  const r = await fetch(`${API}${path}`)
+async function apiFetch(path: string, opts?: RequestInit) {
+  const r = await fetch(`${API}${path}`, opts)
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
@@ -1011,88 +1011,200 @@ interface WikiPage {
   id: string; title: string; file_path: string
   status: string; updated_at: string; wiki_content: string
 }
+interface AutoJob {
+  running: boolean; total: number; done: number; failed: number
+  current: string; missing: number; cancel?: boolean
+  graphify?: GraphifyJob
+}
+interface GraphifyJob {
+  running: boolean; stage: string; nodes: number; edges: number
+  communities: number; exported: number; error: string; html_ready?: boolean
+}
 
 function WikiTab() {
-  const [pages, setPages] = useState<WikiPage[]>([])
+  const [pages, setPages]       = useState<WikiPage[]>([])
   const [selected, setSelected] = useState<WikiPage | null>(null)
   const [generating, setGenerating] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading]   = useState(false)
+  const [job, setJob]           = useState<AutoJob | null>(null)
+  const [gJob, setGJob]         = useState<GraphifyJob | null>(null)
+  const pollRef                 = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadPages = useCallback(async () => {
     setLoading(true)
-    try {
-      const data = await apiFetch('/wiki/list')
-      setPages(data.pages ?? [])
-    } catch { setPages([]) }
+    try { const data = await apiFetch('/wiki/list'); setPages(data.pages ?? []) }
+    catch { setPages([]) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { loadPages() }, [loadPages])
-
-  const generateAll = async () => {
-    setGenerating('all')
+  const loadStatus = useCallback(async () => {
     try {
+      const data = await apiFetch('/wiki/auto_summarize/status')
+      setJob(data)
+      if (data.graphify) setGJob(data.graphify)
+    }
+    catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => { loadPages(); loadStatus() }, [loadPages, loadStatus])
+
+  // 요약 또는 graphify 실행 중일 때 3초마다 폴링
+  useEffect(() => {
+    const active = job?.running || gJob?.running
+    if (active) {
+      pollRef.current = setInterval(async () => {
+        await loadStatus()
+        await loadPages()
+      }, 3000)
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [job?.running, gJob?.running, loadStatus, loadPages])
+
+  const startAuto = async () => {
+    if (job?.missing === 0) {
       await fetch(`${API}/wiki/generate_all`, { method: 'POST' })
       await loadPages()
-    } finally { setGenerating(null) }
+    } else {
+      await fetch(`${API}/wiki/auto_summarize/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 200 }) })
+      await loadStatus()
+    }
+  }
+
+  const runGraphify = async () => {
+    await fetch(`${API}/graphify/run`, { method: 'POST' })
+    await loadStatus()
+  }
+
+  const cancelAuto = async () => {
+    await fetch(`${API}/wiki/auto_summarize/cancel`, { method: 'POST' })
+    await loadStatus()
   }
 
   const generateOne = async (nodeId: string, title: string) => {
     setGenerating(nodeId)
     try {
-      const r = await fetch(`${API}/wiki/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ node_id: nodeId })
-      })
+      const r = await fetch(`${API}/wiki/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node_id: nodeId }) })
       const data = await r.json()
-      if (data.success) {
-        await loadPages()
-        setSelected({ ...data, title } as WikiPage)
-      }
+      if (data.success) { await loadPages(); setSelected({ ...data, title } as WikiPage) }
     } finally { setGenerating(null) }
   }
 
-  const STATUS_LABEL: Record<string, string> = {
-    done: '완료', ollama_only: 'Ollama만', pending: '대기', error: '오류'
-  }
+  const STATUS_LABEL: Record<string, string> = { done: '완료', ollama_only: 'Ollama', pending: '대기', error: '오류' }
   const STATUS_COLOR: Record<string, string> = {
-    done: 'bg-green-50 text-green-600',
-    ollama_only: 'bg-yellow-50 text-yellow-600',
-    pending: 'bg-gray-50 text-gray-400',
-    error: 'bg-red-50 text-red-500'
+    done: 'bg-green-50 text-green-600', ollama_only: 'bg-yellow-50 text-yellow-600',
+    pending: 'bg-gray-50 text-gray-400', error: 'bg-red-50 text-red-500'
   }
+
+  const pct = job && job.total > 0 ? Math.round((job.done / job.total) * 100) : 0
 
   return (
     <div className="flex gap-4 h-full min-h-0">
       {/* 왼쪽: 페이지 목록 */}
       <div className="w-64 shrink-0 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-gray-500">Wiki 페이지 {pages.length}개</span>
-          <div className="flex gap-1">
-            <button onClick={loadPages} disabled={loading}
-              className="text-[10px] px-2 py-1 border border-surface-border rounded-lg hover:bg-gray-50 disabled:opacity-50">
-              {loading ? '...' : '새로고침'}
-            </button>
-            <button onClick={generateAll} disabled={!!generating}
-              className="text-[10px] px-2 py-1 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50">
-              {generating === 'all' ? '생성 중...' : '전체 생성'}
-            </button>
+
+        {/* 자동 요약 패널 */}
+        <div className="border border-surface-border rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-700">자동 요약</span>
+            {job && (
+              <span className="text-[10px] text-gray-400">
+                미요약 {job.missing ?? 0}개
+              </span>
+            )}
           </div>
+
+          {job?.running ? (
+            <>
+              <div className="text-[10px] text-gray-500 truncate">
+                처리 중: {job.current || '…'}
+              </div>
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500">{job.done} / {job.total} ({pct}%)</span>
+                <button onClick={cancelAuto} className="text-[10px] px-2 py-0.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">중단</button>
+              </div>
+            </>
+          ) : (
+            <div className="flex gap-1">
+              <button onClick={startAuto} disabled={!job}
+                className="flex-1 text-[10px] py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 transition">
+                {job?.missing === 0 ? '전체 재요약' : `미요약 ${job?.missing ?? '…'}개 자동 요약`}
+              </button>
+              <button onClick={loadStatus} className="text-[10px] px-2 py-1.5 border border-surface-border rounded-lg hover:bg-gray-50">↺</button>
+            </div>
+          )}
+          {job && !job.running && job.done > 0 && (
+            <p className="text-[10px] text-green-600">완료 {job.done}개 {job.failed > 0 && <span className="text-red-400">· 실패 {job.failed}개</span>}</p>
+          )}
+        </div>
+
+        {/* Graphify 패널 */}
+        <div className="border border-surface-border rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-700">🕸 지식 그래프</span>
+            {gJob?.html_ready && (
+              <span className="text-[10px] text-green-600">● 준비됨</span>
+            )}
+          </div>
+
+          {gJob?.running ? (
+            <div className="space-y-1">
+              <div className="text-[10px] text-blue-600 truncate">{gJob.stage}…</div>
+              <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-400 rounded-full animate-pulse w-full" />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {gJob?.html_ready && (
+                <div className="text-[10px] text-gray-500">
+                  노드 {gJob.nodes} · 엣지 {gJob.edges} · 커뮤니티 {gJob.communities}
+                </div>
+              )}
+              {gJob?.error && (
+                <div className="text-[10px] text-red-500 truncate">{gJob.error}</div>
+              )}
+              <div className="flex gap-1">
+                <button onClick={runGraphify} disabled={gJob?.running}
+                  className="flex-1 text-[10px] py-1.5 border border-surface-border rounded-lg hover:bg-gray-50 disabled:opacity-40 transition">
+                  {gJob?.html_ready ? '재빌드' : 'Graphify 실행'}
+                </button>
+                {gJob?.html_ready && (
+                  <button
+                    onClick={() => window.open('http://127.0.0.1:8766/graphify/graph.html')}
+                    className="text-[10px] px-2 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition">
+                    열기
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <p className="text-[10px] text-gray-400">요약 완료 후 자동 실행됨</p>
+        </div>
+
+        {/* 목록 헤더 */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-gray-500">Wiki {pages.length}페이지</span>
+          <button onClick={loadPages} disabled={loading}
+            className="text-[10px] px-2 py-1 border border-surface-border rounded-lg hover:bg-gray-50 disabled:opacity-50">
+            {loading ? '...' : '새로고침'}
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-1 pr-1">
           {pages.length === 0 && !loading && (
-            <div className="text-xs text-gray-400 text-center mt-8">
-              "전체 생성"을 눌러<br />Wiki를 만드세요
+            <div className="text-xs text-gray-400 text-center mt-6 leading-relaxed">
+              위 "자동 요약"으로<br />Wiki를 만드세요
             </div>
           )}
           {pages.map(p => (
             <button key={p.id} onClick={() => setSelected(p)}
               className={`w-full text-left px-3 py-2 rounded-xl border transition-colors ${
-                selected?.id === p.id
-                  ? 'border-gray-400 bg-gray-50'
-                  : 'border-surface-border hover:bg-gray-50'
+                selected?.id === p.id ? 'border-gray-400 bg-gray-50' : 'border-surface-border hover:bg-gray-50'
               }`}>
               <div className="flex items-center justify-between gap-1 mb-0.5">
                 <span className="text-xs font-medium text-gray-900 truncate">{p.title}</span>
@@ -1112,17 +1224,13 @@ function WikiTab() {
           <>
             <div className="flex items-center justify-between px-5 py-3 border-b border-surface-border bg-gray-50 shrink-0">
               <h2 className="text-sm font-semibold text-gray-900">{selected.title}</h2>
-              <button
-                onClick={() => generateOne(selected.id, selected.title)}
-                disabled={!!generating}
+              <button onClick={() => generateOne(selected.id, selected.title)} disabled={!!generating}
                 className="text-xs px-3 py-1 border border-surface-border rounded-lg hover:bg-white disabled:opacity-50">
                 {generating === selected.id ? '재생성 중...' : '재생성'}
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 prose prose-sm prose-gray max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {selected.wiki_content || '(내용 없음)'}
-              </ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.wiki_content || '(내용 없음)'}</ReactMarkdown>
             </div>
           </>
         ) : (
@@ -1135,8 +1243,144 @@ function WikiTab() {
   )
 }
 
+// ── 탭 0: Ingest ─────────────────────────────────────
+function IngestTab() {
+  const [text, setText]         = useState('')
+  const [title, setTitle]       = useState('')
+  const [srcType, setSrcType]   = useState('note')
+  const [loading, setLoading]   = useState(false)
+  const [msg, setMsg]           = useState<{ ok: boolean; text: string } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [fileResults, setFileResults] = useState<{ name: string; ok: boolean; msg: string }[]>([])
+
+  const ingestText = async () => {
+    if (!text.trim()) return
+    setLoading(true); setMsg(null)
+    try {
+      await apiFetch('/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title || '(제목 없음)', content: text, source_type: srcType }),
+      })
+      setMsg({ ok: true, text: '✓ KG에 추가됐습니다.' })
+      setText(''); setTitle('')
+    } catch (e) {
+      setMsg({ ok: false, text: '오류: ' + String(e) })
+    } finally { setLoading(false) }
+  }
+
+  const ingestFiles = async (files: File[]) => {
+    setFileResults([])
+    for (const file of files) {
+      try {
+        const content = await file.text()
+        await apiFetch('/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: file.name, content, source_type: file.name.split('.').pop() ?? 'text' }),
+        })
+        setFileResults(prev => [...prev, { name: file.name, ok: true, msg: '추가 완료' }])
+      } catch {
+        setFileResults(prev => [...prev, { name: file.name, ok: false, msg: '실패 (바이너리 파일은 파일 탭에서 처리)' }])
+      }
+    }
+  }
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false)
+    const files = Array.from(e.dataTransfer.files)
+    const textFiles = files.filter(f => /\.(txt|md|csv)$/i.test(f.name))
+    const binFiles  = files.filter(f => /\.(pdf|docx|xlsx|pptx)$/i.test(f.name))
+    if (textFiles.length) ingestFiles(textFiles)
+    if (binFiles.length) setFileResults(prev => [...prev, ...binFiles.map(f => ({
+      name: f.name, ok: false, msg: 'PDF/DOCX는 서버 docs/ 폴더에 넣고 파일 탭에서 처리하세요'
+    }))])
+  }
+
+  return (
+    <div className="flex gap-5 h-full min-h-0">
+      {/* 텍스트 입력 */}
+      <div className="flex-1 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-gray-700">텍스트 직접 추가</h3>
+          <span className="text-[10px] text-gray-400">노트, 아이디어, 회의록 등 바로 KG에 추가</span>
+        </div>
+
+        <div className="flex gap-2">
+          <input value={title} onChange={e => setTitle(e.target.value)}
+            placeholder="제목 (선택)"
+            className="flex-1 border border-surface-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white" />
+          <select value={srcType} onChange={e => setSrcType(e.target.value)}
+            className="border border-surface-border rounded-xl px-3 py-2 text-sm focus:outline-none bg-white text-gray-700">
+            <option value="note">노트</option>
+            <option value="text">텍스트</option>
+            <option value="memo">메모</option>
+            <option value="meeting">회의록</option>
+            <option value="idea">아이디어</option>
+          </select>
+        </div>
+
+        <textarea value={text} onChange={e => setText(e.target.value)}
+          rows={12}
+          placeholder="내용을 붙여넣거나 직접 입력하세요..."
+          className="flex-1 border border-surface-border rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:border-gray-400 bg-white leading-relaxed placeholder-gray-300" />
+
+        <div className="flex items-center gap-3">
+          <button onClick={ingestText} disabled={!text.trim() || loading}
+            className="px-5 py-2 rounded-xl bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white text-sm font-medium transition">
+            {loading ? '추가 중…' : 'KG에 추가'}
+          </button>
+          {msg && (
+            <span className={`text-xs ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</span>
+          )}
+          {text && <span className="ml-auto text-[10px] text-gray-400">{text.length}자</span>}
+        </div>
+      </div>
+
+      {/* 파일 드롭 */}
+      <div className="w-72 flex flex-col gap-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-gray-700">파일 드롭</h3>
+          <span className="text-[10px] text-gray-400">txt, md, csv 직접 추가</span>
+        </div>
+
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={`flex-1 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 transition cursor-pointer
+            ${dragging ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-gray-50'}`}
+        >
+          <div className="text-3xl">📂</div>
+          <p className="text-xs text-gray-400 text-center leading-relaxed">
+            txt / md / csv 파일을<br />여기에 드래그하세요
+          </p>
+          <p className="text-[10px] text-gray-300 text-center">
+            PDF·DOCX 등은 서버 docs/ 폴더에<br />넣고 파일 탭에서 처리하세요
+          </p>
+        </div>
+
+        {fileResults.length > 0 && (
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {fileResults.map((r, i) => (
+              <div key={i} className={`text-[10px] px-2 py-1.5 rounded-lg flex items-start gap-1.5
+                ${r.ok ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+                <span className="shrink-0">{r.ok ? '✓' : '!'}</span>
+                <div>
+                  <div className="font-medium truncate">{r.name}</div>
+                  <div className="opacity-70">{r.msg}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── 메인 뷰 ──────────────────────────────────────────
-type Tab = 'search' | 'graph' | 'files' | 'preference' | 'wiki'
+type Tab = 'search' | 'ingest' | 'graph' | 'files' | 'preference' | 'wiki'
 
 export default function KnowledgeGraph({ settings }: { settings: Settings }) {
   const [tab, setTab] = useState<Tab>('search')
@@ -1159,7 +1403,7 @@ export default function KnowledgeGraph({ settings }: { settings: Settings }) {
           )}
         </div>
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-          {([['search', '검색 · 요약'], ['graph', '그래프'], ['files', '파일'], ['preference', 'Preference'], ['wiki', 'Wiki']] as [Tab, string][]).map(([id, label]) => (
+          {([['search', '검색 · 요약'], ['ingest', '내용 추가'], ['graph', '그래프'], ['files', '파일'], ['preference', 'Preference'], ['wiki', 'Wiki']] as [Tab, string][]).map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 tab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -1183,6 +1427,7 @@ export default function KnowledgeGraph({ settings }: { settings: Settings }) {
         ) : (
           <>
             {tab === 'search'     && <SearchTab settings={settings} />}
+            {tab === 'ingest'     && <IngestTab />}
             {tab === 'graph'      && <GraphTab />}
             {tab === 'files'      && <FilesTab />}
             {tab === 'preference' && <PreferenceTab settings={settings} />}
