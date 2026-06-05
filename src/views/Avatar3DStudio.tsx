@@ -29,6 +29,19 @@ const RIGHT_EAR = 454
 interface ChatMsg { role: 'user' | 'assistant'; content: string }
 interface Props { settings: Settings }
 
+interface KgSummary {
+  core_interests?: Array<{ name: string; score: number }>
+  trends?: Array<{ topic: string; count: number }>
+  gaps?: string[]
+}
+
+interface KgNode {
+  title?: string
+  summary?: string
+  content?: string
+  source?: string
+}
+
 export default function Avatar3DStudio({ settings }: Props) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const videoRef   = useRef<HTMLVideoElement>(null)
@@ -63,6 +76,7 @@ export default function Avatar3DStudio({ settings }: Props) {
   const [speaking, setSpeaking]       = useState(false)
   const [listening, setListening]     = useState(false)
   const [vadActive, setVadActive]     = useState(false)
+  const [kgSummary, setKgSummary]     = useState<KgSummary | null>(null)
   const chatEndRef   = useRef<HTMLDivElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,6 +86,42 @@ export default function Avatar3DStudio({ settings }: Props) {
   const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const vadRecRef    = useRef<MediaRecorder | null>(null)
   const vadChunksRef = useRef<Blob[]>([])
+
+  // ─── KG 요약 로드 (마운트 시 1회) ──────────────────────────────────
+  useEffect(() => {
+    fetch(`${API}/avatar/summary`)
+      .then(r => r.json())
+      .then(setKgSummary)
+      .catch(() => {})
+  }, [])
+
+  const buildSystemPrompt = useCallback(async (userText: string): Promise<string> => {
+    const base = '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.'
+    const parts: string[] = [base]
+
+    // KG 요약 (관심사/트렌드)
+    if (kgSummary) {
+      const interests = kgSummary.core_interests?.slice(0, 5).map(i => i.name).join(', ')
+      const trends = kgSummary.trends?.slice(0, 3).map(t => t.topic).join(', ')
+      if (interests) parts.push(`\n[나의 핵심 관심사: ${interests}]`)
+      if (trends) parts.push(`[최근 트렌드: ${trends}]`)
+    }
+
+    // RAG: 질문과 관련된 KG 노드 검색
+    try {
+      const res = await fetch(`${API}/search?q=${encodeURIComponent(userText)}&limit=3&mode=semantic`)
+      const data = await res.json()
+      const nodes: KgNode[] = data.results ?? []
+      if (nodes.length > 0) {
+        const ctx = nodes
+          .map(n => `- ${n.title ?? ''}${n.summary ? ': ' + n.summary : ''}`)
+          .join('\n')
+        parts.push(`\n[관련 지식:\n${ctx}]`)
+      }
+    } catch { /* 검색 실패 시 무시 */ }
+
+    return parts.join('\n')
+  }, [kgSummary])
 
   // ─── Three.js 씬 초기화 ───────────────────────────────────────────────
   useEffect(() => {
@@ -365,14 +415,15 @@ export default function Avatar3DStudio({ settings }: Props) {
     setMessages(prev => [...prev, userMsg]); setInput(''); setChatLoading(true)
     try {
       let reply = ''
+      const system = await buildSystemPrompt(text)
       await streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint,
-        [userMsg], '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.',
+        [userMsg], system,
         d => { reply += d })
       setMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch (e) {
       setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${e instanceof Error ? e.message : String(e)}` }])
     } finally { setChatLoading(false) }
-  }, [settings])
+  }, [settings, buildSystemPrompt])
 
   const startVadMode = useCallback(async () => {
     if (listening) { stopVad(); return }
@@ -440,8 +491,9 @@ export default function Avatar3DStudio({ settings }: Props) {
       setMessages(prev => [...prev, userMsg]); setInput(''); setChatLoading(true)
       try {
         let reply = ''
+        const system = await buildSystemPrompt(text)
         await streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint,
-          [userMsg], '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.',
+          [userMsg], system,
           d => { reply += d })
         setMessages(prev => [...prev, { role: 'assistant', content: reply }])
       } catch (e) {
@@ -449,7 +501,7 @@ export default function Avatar3DStudio({ settings }: Props) {
       } finally { setChatLoading(false) }
     }
     recorder.start(); sttRecRef.current = recorder; setListening(true)
-  }, [listening, settings])
+  }, [listening, settings, buildSystemPrompt])
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || chatLoading) return
@@ -464,7 +516,7 @@ export default function Avatar3DStudio({ settings }: Props) {
       if (!sessionKey) throw new Error('Claude.ai 세션이 연결되지 않았습니다. 설정에서 연결해주세요.')
 
       const history = [...messages, userMsg].slice(-10)
-      const system = '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.'
+      const system = await buildSystemPrompt(userMsg.content)
 
       let reply = ''
       await streamClaudeWeb(sessionKey, mcpEndpoint, history, system, (delta) => {
@@ -484,7 +536,7 @@ export default function Avatar3DStudio({ settings }: Props) {
     } finally {
       setChatLoading(false)
     }
-  }, [input, chatLoading, messages, settings.claudeSessionKey, settings.mcpEndpoint])
+  }, [input, chatLoading, messages, settings.claudeSessionKey, settings.mcpEndpoint, buildSystemPrompt])
 
   // ─── XTTS TTS + Web Audio 립싱크 ────────────────────────────────────
   const playTTS = useCallback(async (text: string) => {
