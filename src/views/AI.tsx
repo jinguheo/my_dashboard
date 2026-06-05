@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import ChatMarkdown from '@/components/ChatMarkdown'
 import type { AIMessage, AiProvider, Settings } from '@/types'
 import type { TodoState } from '@/store/useTodos'
 import type { NoteState } from '@/store/useNotes'
@@ -19,6 +20,7 @@ interface Props {
   calendar: CalendarState
   settings: Settings
   onProviderChange: (provider: AiProvider) => void
+  onNavigate?: (view: string) => void
 }
 
 function ClaudeIcon() {
@@ -55,11 +57,12 @@ const PROVIDERS: { id: AiProvider; label: string; icon: React.ReactNode; active:
   { id: 'custom',     label: 'Custom',     icon: <CustomIcon />, active: 'bg-purple-50 text-purple-600 border-purple-300' },
 ]
 
-export default function AI({ todos, notes, calendar, settings, onProviderChange }: Props) {
+export default function AI({ todos, notes, calendar, settings, onProviderChange, onNavigate }: Props) {
   const [mode, setMode] = useState<Mode>('briefing')
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const provider = settings.aiProvider ?? 'claude'
 
@@ -150,6 +153,8 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange 
       )
     } catch (e: any) {
       const errMsg = e?.error?.message || e?.message || String(e)
+      const is403 = errMsg.includes('403') || errMsg.toLowerCase().includes('세션 만료') || errMsg.toLowerCase().includes('session')
+      if (is403) setSessionExpired(true)
       setMessages(p => p.map((m, i) => i === idx ? { ...m, content: `오류: ${errMsg}` } : m))
     } finally {
       setLoading(false)
@@ -180,6 +185,8 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange 
       )
     } catch (e: any) {
       const errMsg = e?.error?.message || e?.message || String(e)
+      const is403 = errMsg.includes('403') || errMsg.toLowerCase().includes('세션 만료') || errMsg.toLowerCase().includes('session')
+      if (is403) setSessionExpired(true)
       setMessages(p => p.map((m, i) => i === lastIdx ? { ...m, content: `오류: ${errMsg}` } : m))
     } finally {
       setLoading(false)
@@ -187,8 +194,8 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange 
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2">
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2 shrink-0 flex-wrap">
         <h1 className="text-sm font-bold text-gray-900 mr-2">✦ AI 어시스턴트</h1>
 
         {/* Provider selector icons */}
@@ -227,7 +234,19 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange 
         )}
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
+      {sessionExpired && provider === 'claude-web' && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-red-50 border-b border-red-200 text-sm text-red-700 shrink-0">
+          <span>⚠️ Claude.ai 세션이 만료됐습니다.</span>
+          <button
+            onClick={() => onNavigate?.('settings')}
+            className="ml-auto shrink-0 px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg transition-colors"
+          >
+            설정에서 재연결
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-auto min-h-0 px-6 py-4 space-y-4">
         {noKey && (
           <div className="text-center py-8">
             <p className="text-4xl mb-3">🔑</p>
@@ -274,23 +293,28 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange 
           </div>
         )}
 
+
         {messages.map((msg, i) => (
           <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role === 'assistant' && (
               <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm shrink-0 mt-0.5">✦</div>
             )}
-            <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+            <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
               msg.role === 'user'
-                ? 'bg-gray-900 text-white rounded-tr-sm'
+                ? 'bg-gray-900 text-white rounded-tr-sm whitespace-pre-wrap'
                 : 'bg-surface border border-surface-border text-gray-800 rounded-tl-sm'
             }`}>
-              {msg.content || (loading && i === messages.length - 1 ? (
-                <span className="inline-flex gap-1">
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </span>
-              ) : '')}
+              {msg.role === 'assistant'
+                ? (msg.content
+                    ? <ChatMarkdown content={msg.content} />
+                    : (loading && i === messages.length - 1 ? (
+                      <span className="inline-flex gap-1">
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                    ) : ''))
+                : msg.content}
             </div>
             {msg.role === 'user' && (
               <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs shrink-0 mt-0.5 text-gray-600">나</div>
@@ -301,20 +325,21 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange 
       </div>
 
       {!noKey && mode === 'chat' && (
-        <div className="px-6 py-4 border-t border-surface-border">
-          <div className="flex gap-3">
-            <input
+        <div className="px-6 py-4 border-t border-surface-border shrink-0">
+          <div className="relative">
+            <textarea
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              placeholder="메시지를 입력하세요... (Enter로 전송)"
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+              placeholder="메시지를 입력하세요... (Enter로 전송, Shift+Enter 줄바꿈)"
               disabled={loading}
-              className="flex-1 bg-surface border border-surface-border rounded-xl px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 disabled:opacity-50"
+              rows={3}
+              className="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 pr-20 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 disabled:opacity-50 resize-none min-h-[80px]"
             />
             <button
               onClick={handleSend}
               disabled={loading || !input.trim()}
-              className="px-4 py-2.5 bg-gray-900 hover:bg-gray-700 text-white text-sm rounded-xl transition-colors disabled:opacity-50"
+              className="absolute right-3 bottom-3 px-4 py-1.5 bg-gray-900 hover:bg-gray-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
             >
               전송
             </button>

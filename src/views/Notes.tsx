@@ -49,6 +49,7 @@ function clearHtml(id: string) {
 }
 
 type ViewMode = 'edit' | 'split' | 'preview'
+type ListLayout = 'list' | 'grid'
 interface Props { notes: NoteState }
 
 function relativeTime(iso: string) {
@@ -107,6 +108,7 @@ function PreviewPane({ noteId, content }: { noteId: string; content: string }) {
 export default function Notes({ notes: noteState }: Props) {
   const [activeId, setActiveId] = useState<string | null>(noteState.notes[0]?.id ?? null)
   const [mode, setMode] = useState<ViewMode>('split')
+  const [layout, setLayout] = useState<ListLayout>('list')
   const [, forceUpdate] = useState(0)
   const editorWrapRef = useRef<HTMLDivElement>(null)
   const activeIdRef = useRef(activeId)
@@ -162,33 +164,86 @@ export default function Notes({ notes: noteState }: Props) {
     <div className="flex-1 overflow-hidden flex">
       {/* 노트 목록 */}
       <div className="w-56 shrink-0 bg-gray-50 border-r border-surface-border flex flex-col">
-        <div className="p-3 border-b border-surface-border flex items-center justify-between">
+        <div className="p-3 border-b border-surface-border flex items-center justify-between gap-1">
           <span className="text-sm font-semibold text-gray-900">📝 노트</span>
-          <button
-            onClick={handleCreate}
-            className="w-6 h-6 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 flex items-center justify-center text-sm transition-colors"
-          >+</button>
+          <div className="flex items-center gap-1">
+            {/* 레이아웃 토글 */}
+            <button
+              onClick={() => setLayout(l => l === 'list' ? 'grid' : 'list')}
+              title={layout === 'list' ? '아이콘 보기' : '목록 보기'}
+              className="w-6 h-6 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-600 flex items-center justify-center transition-colors"
+            >
+              {layout === 'list' ? (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect x="0" y="0" width="5" height="5" rx="1" fill="currentColor"/>
+                  <rect x="7" y="0" width="5" height="5" rx="1" fill="currentColor"/>
+                  <rect x="0" y="7" width="5" height="5" rx="1" fill="currentColor"/>
+                  <rect x="7" y="7" width="5" height="5" rx="1" fill="currentColor"/>
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect x="0" y="1" width="12" height="2" rx="1" fill="currentColor"/>
+                  <rect x="0" y="5" width="12" height="2" rx="1" fill="currentColor"/>
+                  <rect x="0" y="9" width="12" height="2" rx="1" fill="currentColor"/>
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={handleCreate}
+              className="w-6 h-6 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 flex items-center justify-center text-sm transition-colors"
+            >+</button>
+          </div>
         </div>
         <div className="flex-1 overflow-auto">
           {noteState.notes.length === 0 ? (
             <p className="text-xs text-gray-400 text-center mt-8 px-4">노트가 없습니다.<br />+ 버튼으로 만들어보세요.</p>
-          ) : noteState.notes.map(note => (
-            <button
-              key={note.id}
-              onClick={() => setActiveId(note.id)}
-              className={`w-full text-left px-3 py-2.5 border-b border-surface-border transition-colors group relative ${
-                note.id === activeId ? 'bg-white border-l-2 border-l-gray-900' : 'hover:bg-white'
-              }`}
-            >
-              <p className="text-xs font-medium text-gray-800 line-clamp-1 pr-4">{note.title || '(제목 없음)'}</p>
-              <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{note.content.slice(0, 40) || '(내용 없음)'}</p>
-              <p className="text-[9px] text-gray-400 mt-0.5">{relativeTime(note.updatedAt)}</p>
+          ) : layout === 'list' ? (
+            noteState.notes.map(note => (
               <button
-                onClick={e => { e.stopPropagation(); handleDelete(note.id) }}
-                className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 text-sm transition-all"
-              >×</button>
-            </button>
-          ))}
+                key={note.id}
+                onClick={() => setActiveId(note.id)}
+                className={`w-full text-left px-3 py-2.5 border-b border-surface-border transition-colors group relative ${
+                  note.id === activeId ? 'bg-white border-l-2 border-l-gray-900' : 'hover:bg-white'
+                }`}
+              >
+                <p className="text-xs font-medium text-gray-800 line-clamp-1 pr-4">{note.title || '(제목 없음)'}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{note.content.slice(0, 40) || '(내용 없음)'}</p>
+                <p className="text-[9px] text-gray-400 mt-0.5">{relativeTime(note.updatedAt)}</p>
+                <button
+                  onClick={e => { e.stopPropagation(); handleDelete(note.id) }}
+                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 text-sm transition-all"
+                >×</button>
+              </button>
+            ))
+          ) : (
+            <div className="p-2 grid grid-cols-2 gap-2">
+              {noteState.notes.map(note => (
+                <button
+                  key={note.id}
+                  onClick={() => setActiveId(note.id)}
+                  title={note.title || '(제목 없음)'}
+                  className={`relative group flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors ${
+                    note.id === activeId
+                      ? 'bg-white border-gray-900 shadow-sm'
+                      : 'bg-white border-gray-200 hover:border-gray-400 hover:shadow-sm'
+                  }`}
+                >
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0 ${
+                    note.id === activeId ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {note.title ? note.title[0].toUpperCase() : '📝'}
+                  </div>
+                  <p className="text-[10px] font-medium text-gray-800 line-clamp-2 text-center leading-tight w-full">
+                    {note.title || '(제목 없음)'}
+                  </p>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDelete(note.id) }}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 text-xs leading-none transition-all"
+                  >×</button>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

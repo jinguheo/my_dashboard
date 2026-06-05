@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import ChatMarkdown from '@/components/ChatMarkdown'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -13,7 +14,7 @@ import { getKoreanHoliday } from '@/utils/koreanCalendar'
 import { fetchRssFeedsFromMcp, relativeRssDate, type RssItem } from '@/services/rss'
 import { streamChat, briefingSystem, strategicSystem, buildBriefingMessage } from '@/services/claude'
 import { streamChatOpenAI } from '@/services/openai'
-import { streamClaudeWeb } from '@/services/claudeWeb'
+import { streamClaudeWeb, claudeWebAutoConnect } from '@/services/claudeWeb'
 import {
   displaySymbol,
   fetchWatchlist,
@@ -302,7 +303,10 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const upcoming = calendar.upcoming(7)
 
   useEffect(() => {
-    aiBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (aiMessages.length === 0) return
+    const el = aiBottomRef.current
+    const scroller = el?.parentElement
+    if (scroller) scroller.scrollTop = scroller.scrollHeight
   }, [aiMessages])
 
   useEffect(() => {
@@ -387,13 +391,53 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     onDelta: (t: string) => void,
   ) {
     if (aiProvider === 'claude-web') {
-      return streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint, msgs, system, onDelta)
+      return callClaudeWebWithRetry(settings.claudeSessionKey, msgs, system, onDelta)
     } else if (aiProvider === 'chatgpt') {
       return streamChatOpenAI(settings.openaiApiKey, 'https://api.openai.com/v1', 'gpt-4o', msgs, system, onDelta)
     } else if (aiProvider === 'custom') {
       return streamChatOpenAI('', settings.customAiEndpoint, settings.customAiModel || 'gpt-4o', msgs, system, onDelta)
     }
     return streamChat(settings.anthropicApiKey, msgs, system, onDelta)
+  }
+
+  // Claude.ai 웹 세션: 403(세션 만료) 시 자동 재연결, 429(한도 초과) 시 백오프 후 재시도
+  async function callClaudeWebWithRetry(
+    sessionKey: string,
+    msgs: Array<{ role: 'user' | 'assistant'; content: string }>,
+    system: string,
+    onDelta: (t: string) => void,
+  ) {
+    const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+    let key = sessionKey
+    let reconnected = false
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        return await streamClaudeWeb(key, settings.mcpEndpoint, msgs, system, onDelta)
+      } catch (e: any) {
+        const errMsg = e?.error?.message || e?.message || String(e)
+        const is403 = errMsg.includes('403') || /세션 만료|session/i.test(errMsg)
+        const is429 = errMsg.includes('429') || /한도 초과|rate limit|too many/i.test(errMsg)
+
+        if (is403 && !reconnected) {
+          // 세션 키 자동 재발급 (MCP가 Chrome 로그인 상태에서 추출)
+          const fresh = await claudeWebAutoConnect(settings.mcpEndpoint)
+          if (fresh && fresh !== key) {
+            key = fresh
+            reconnected = true
+            onUpdateSettings?.({ claudeSessionKey: fresh })
+            continue // 새 키로 즉시 재시도
+          }
+          throw new Error('세션 만료(403). 설정에서 Claude.ai를 다시 연결해주세요.')
+        }
+
+        if (is429 && attempt < 3) {
+          await wait(2000 * (attempt + 1)) // 2s, 4s, 6s 백오프
+          continue
+        }
+        throw e
+      }
+    }
+    throw new Error('Claude.ai 연결에 반복 실패했습니다. 잠시 후 다시 시도하거나 설정에서 재연결해주세요.')
   }
 
   async function generateBriefing() {
@@ -429,7 +473,10 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     const pending = todos.pending.map(t => `[${t.priority}] ${t.text}`).join('\n')
     const completed = todos.completedToday.map(t => t.text).join(', ')
     const events = upcoming.map(e => `${e.date} ${e.time || ''} ${e.title}`.trim()).join('\n')
-    const recentNotes = notes.notes.slice(0, 4).map(n => `- ${n.title}: ${n.content.slice(0, 120)}`).join('\n')
+    const recentNotes = notes.notes.slice(0, 10).map((n, i) => {
+      const body = n.content.length > 2000 ? n.content.slice(0, 2000) + '…(이하 생략)' : n.content
+      return `[노트 ${i + 1}] 제목: ${n.title || '(제목 없음)'}\n${body || '(내용 없음)'}`
+    }).join('\n\n')
     const stockSummary = stocks.map(q => `${q.symbol}: ${fmtPrice(q)} ${fmtChange(q)}`).join('\n')
     const routineSummary = routine.map(item => `- ${item}`).join('\n')
 
@@ -607,7 +654,8 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-5">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="shrink-0 p-6 pb-0 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">안녕하세요, {settings.userName}님</h1>
@@ -674,8 +722,9 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         </button>
       </form>
 
-      <div ref={containerRef} className="flex gap-0 items-start min-h-0" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
-        <div className="space-y-5 min-w-0 overflow-hidden" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
+      </div>{/* end header */}
+      <div ref={containerRef} className="flex-1 min-h-0 flex gap-0 items-stretch px-6 pb-6 pt-5" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
+        <div className="space-y-5 min-w-0 overflow-y-auto pr-1" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
       <div className="grid gap-3 items-start" style={{ gridTemplateColumns: '1fr 1fr 1fr 3fr' }}>
         {/* 남은 할 일 */}
         <div onClick={() => onNavigate('todos')} className="bg-surface border border-surface-border rounded-xl p-3 cursor-pointer hover:bg-surface-hover transition-colors">
@@ -990,14 +1039,21 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               {notes.notes.length === 0 ? (
                 <p className="text-xs text-gray-400">작성한 노트가 없습니다.</p>
               ) : (
-                <ul className="space-y-1">
-                  {notes.notes.slice(0, 5).map(n => (
-                    <li key={n.id} className="cursor-pointer hover:text-gray-900" onClick={() => onNavigate('notes')}>
-                      <p className="text-xs text-gray-700 truncate">{n.title}</p>
-                      <p className="text-[10px] text-gray-400">{relativeTime(n.updatedAt)}</p>
-                    </li>
+                <div className="grid grid-cols-4 gap-2">
+                  {notes.notes.slice(0, 4).map(n => (
+                    <button
+                      key={n.id}
+                      onClick={() => onNavigate('notes')}
+                      title={n.title || '(제목 없음)'}
+                      className="aspect-square flex flex-col items-center justify-center gap-1 p-1.5 rounded-lg border border-gray-200 hover:border-gray-400 hover:shadow-sm bg-white transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center text-sm shrink-0 font-medium text-gray-600">
+                        {n.title ? n.title[0].toUpperCase() : '📝'}
+                      </div>
+                      <p className="text-[10px] font-medium text-gray-800 text-center line-clamp-2 leading-tight w-full">{n.title || '(제목 없음)'}</p>
+                    </button>
                   ))}
-                </ul>
+                </div>
               )}
             </Panel>
           {(() => {
@@ -1136,7 +1192,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             >
               <div className="w-0.5 h-12 bg-gray-200 group-hover:bg-gray-400 rounded-full transition-colors" />
             </div>
-            <div className="min-w-0 overflow-hidden" style={{ width: `${100 - splitPct}%` }}>
+            <div className="min-w-0 flex flex-col" style={{ width: `${100 - splitPct}%` }}>
               <DashboardAiPanel
                 messages={aiMessages}
                 input={aiInput}
@@ -1449,13 +1505,14 @@ function DashboardAiPanel({
   pdfPanel?: React.ReactNode
 }) {
   const suggestions = [
+    '최근 노트 내용을 읽고 핵심만 요약해줘',
     '오늘 제일 먼저 처리할 일을 정리해줘',
     '내 일정과 할 일을 보고 리스크를 알려줘',
     '주식 정보까지 포함해서 오늘 브리핑해줘',
   ]
 
   return (
-    <aside className="sticky top-6 h-[calc(100vh-3rem)] bg-white border border-surface-border rounded-xl flex flex-col overflow-hidden">
+    <aside className="flex-1 min-h-0 bg-white border border-surface-border rounded-xl flex flex-col overflow-hidden">
       <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">AI 대화</h2>
@@ -1468,7 +1525,7 @@ function DashboardAiPanel({
         )}
       </div>
 
-      <div className="flex-1 overflow-auto p-4 space-y-3">
+      <div className="flex-1 overflow-auto min-h-0 p-4 space-y-3">
         {!hasApiKey ? (
           <div className="h-full flex flex-col items-center justify-center text-center gap-3">
             <p className="text-sm text-red-500">Anthropic API 키가 필요합니다.</p>
@@ -1496,12 +1553,16 @@ function DashboardAiPanel({
         ) : (
           messages.map((message, index) => (
             <div key={`${message.timestamp}-${index}`} className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-              <div className={`max-w-[88%] rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              <div className={`max-w-[88%] rounded-xl px-3 py-2.5 text-sm leading-relaxed ${
                 message.role === 'user'
-                  ? 'bg-gray-900 text-white rounded-tr-sm'
+                  ? 'bg-gray-900 text-white rounded-tr-sm whitespace-pre-wrap'
                   : 'bg-surface border border-surface-border text-gray-800 rounded-tl-sm'
               }`}>
-                {message.content || (loading && index === messages.length - 1 ? '답변 작성 중...' : '')}
+                {message.role === 'assistant'
+                  ? (message.content
+                      ? <ChatMarkdown content={message.content} />
+                      : (loading && index === messages.length - 1 ? '답변 작성 중...' : ''))
+                  : message.content}
               </div>
             </div>
           ))
@@ -1511,7 +1572,7 @@ function DashboardAiPanel({
 
       {pdfPanel && <div className="border-t border-surface-border">{pdfPanel}</div>}
 
-      <div className="p-3 border-t border-surface-border">
+      <div className="p-3 border-t border-surface-border shrink-0">
         <textarea
           value={input}
           onChange={e => onInput(e.target.value)}

@@ -121,7 +121,7 @@ export default function App() {
         {view === 'calendar' && <Calendar calendar={calendar} settings={settings} />}
         {view === 'email'    && <Email settings={settings} onNavigate={handleNavigate} />}
         {view === 'chat'     && <Chat settings={settings} onNavigate={handleNavigate} />}
-        {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} onProviderChange={(p) => updateSettings({ aiProvider: p })} />}
+        {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} onProviderChange={(p) => updateSettings({ aiProvider: p })} onNavigate={handleNavigate} />}
         {view === 'settings' && <Settings settings={settings} onSave={updateSettings} />}
         {view === 'history'   && <History />}
         {view === 'knowledge' && <KnowledgeGraph settings={settings} />}

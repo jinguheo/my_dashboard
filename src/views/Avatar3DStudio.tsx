@@ -61,8 +61,17 @@ export default function Avatar3DStudio({ settings }: Props) {
   const [input, setInput]             = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [speaking, setSpeaking]       = useState(false)
-  const chatEndRef = useRef<HTMLDivElement>(null)
+  const [listening, setListening]     = useState(false)
+  const [vadActive, setVadActive]     = useState(false)
+  const chatEndRef   = useRef<HTMLDivElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sttRecRef    = useRef<any>(null)
+  const vadCtxRef    = useRef<AudioContext | null>(null)
+  const vadStreamRef = useRef<MediaStream | null>(null)
+  const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const vadRecRef    = useRef<MediaRecorder | null>(null)
+  const vadChunksRef = useRef<Blob[]>([])
 
   // ─── Three.js 씬 초기화 ───────────────────────────────────────────────
   useEffect(() => {
@@ -331,6 +340,117 @@ export default function Avatar3DStudio({ settings }: Props) {
   }, [])
 
   // ─── Claude.ai 세션 채팅 ─────────────────────────────────────────────
+  const stopVad = useCallback(() => {
+    if (silenceTimer.current) { clearTimeout(silenceTimer.current); silenceTimer.current = null }
+    vadRecRef.current?.stop()
+    vadCtxRef.current?.close()
+    vadStreamRef.current?.getTracks().forEach(t => t.stop())
+    vadCtxRef.current = null; vadStreamRef.current = null; vadRecRef.current = null
+    setListening(false); setVadActive(false)
+  }, [])
+
+  const transcribeAndSend = useCallback(async (chunks: Blob[]) => {
+    if (!chunks.length) return
+    const blob = new Blob(chunks, { type: 'audio/webm' })
+    const form = new FormData(); form.append('audio', blob, 'voice.webm')
+    let text = ''
+    try {
+      const res  = await fetch(`${API}/stt/transcribe`, { method: 'POST', body: form })
+      const data = await res.json(); text = data.text?.trim() || ''
+    } catch { return }
+    if (!text) return
+    setInput(text)
+    if (!settings.claudeSessionKey) return
+    const userMsg: ChatMsg = { role: 'user', content: text }
+    setMessages(prev => [...prev, userMsg]); setInput(''); setChatLoading(true)
+    try {
+      let reply = ''
+      await streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint,
+        [userMsg], '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.',
+        d => { reply += d })
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${e instanceof Error ? e.message : String(e)}` }])
+    } finally { setChatLoading(false) }
+  }, [settings])
+
+  const startVadMode = useCallback(async () => {
+    if (listening) { stopVad(); return }
+    let micStream: MediaStream
+    try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }) }
+    catch { setMessages(prev => [...prev, { role: 'assistant', content: '마이크 접근 실패' }]); return }
+
+    vadStreamRef.current = micStream
+    const ctx = new AudioContext(); vadCtxRef.current = ctx
+    const src = ctx.createMediaStreamSource(micStream)
+    const analyser = ctx.createAnalyser(); analyser.fftSize = 512
+    src.connect(analyser)
+    const buf = new Uint8Array(analyser.frequencyBinCount)
+    const THRESHOLD = 20, SILENCE_MS = 1500
+    let isRecording = false
+
+    const tick = () => {
+      if (!vadCtxRef.current) return
+      analyser.getByteFrequencyData(buf)
+      const avg = buf.reduce((a, b) => a + b, 0) / buf.length
+      if (avg > THRESHOLD) {
+        setVadActive(true)
+        if (silenceTimer.current) { clearTimeout(silenceTimer.current); silenceTimer.current = null }
+        if (!isRecording) {
+          isRecording = true; vadChunksRef.current = []
+          const rec = new MediaRecorder(micStream, { mimeType: 'audio/webm' })
+          rec.ondataavailable = e => { if (e.data.size > 0) vadChunksRef.current.push(e.data) }
+          rec.onstop = () => { isRecording = false; setVadActive(false); transcribeAndSend([...vadChunksRef.current]) }
+          rec.start(); vadRecRef.current = rec
+        }
+        silenceTimer.current = setTimeout(() => {
+          vadRecRef.current?.stop(); vadRecRef.current = null; setVadActive(false)
+        }, SILENCE_MS)
+      }
+      requestAnimationFrame(tick)
+    }
+    tick()
+    setListening(true)
+    setMessages(prev => [...prev, { role: 'assistant', content: '🎤 음성 명령 대기 중… 말씀하세요.' }])
+  }, [listening, stopVad, transcribeAndSend])
+
+  const startVoiceChat = useCallback(async () => {
+    if (listening) { sttRecRef.current?.stop(); return }
+    let micStream: MediaStream
+    try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }) }
+    catch { setMessages(prev => [...prev, { role: 'assistant', content: '마이크 접근 실패' }]); return }
+    const chunks: Blob[] = []
+    const recorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' })
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
+    recorder.onstop = async () => {
+      micStream.getTracks().forEach(t => t.stop())
+      setListening(false)
+      if (!chunks.length) return
+      const blob = new Blob(chunks, { type: 'audio/webm' })
+      const form = new FormData(); form.append('audio', blob, 'voice.webm')
+      let text = ''
+      try {
+        const res = await fetch(`${API}/stt/transcribe`, { method: 'POST', body: form })
+        const data = await res.json(); text = data.text?.trim() || ''
+      } catch { setMessages(prev => [...prev, { role: 'assistant', content: 'STT 서버 오류' }]); return }
+      if (!text) return
+      setInput(text)
+      if (!settings.claudeSessionKey) return
+      const userMsg: ChatMsg = { role: 'user', content: text }
+      setMessages(prev => [...prev, userMsg]); setInput(''); setChatLoading(true)
+      try {
+        let reply = ''
+        await streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint,
+          [userMsg], '당신은 사용자의 디지털 아바타입니다. 1인칭으로 짧고 자연스럽게 한국어로 답하세요.',
+          d => { reply += d })
+        setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      } catch (e) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${e instanceof Error ? e.message : String(e)}` }])
+      } finally { setChatLoading(false) }
+    }
+    recorder.start(); sttRecRef.current = recorder; setListening(true)
+  }, [listening, settings])
+
   const sendMessage = useCallback(async () => {
     if (!input.trim() || chatLoading) return
     const userMsg: ChatMsg = { role: 'user', content: input.trim() }
@@ -542,11 +662,26 @@ export default function Avatar3DStudio({ settings }: Props) {
             </p>
           )}
           <div className="flex gap-2">
+            {/* VAD 자동 감지 */}
+            <button onClick={startVadMode}
+              disabled={chatLoading || !settings.claudeSessionKey}
+              title={listening ? 'VAD 중지' : '음성 명령 (자동 감지)'}
+              className={`px-3 py-2 rounded-xl text-sm transition shrink-0
+                ${listening ? (vadActive ? 'bg-green-600 text-white animate-pulse' : 'bg-red-600 text-white') : 'bg-gray-700 hover:bg-gray-600 text-gray-300 disabled:opacity-40'}`}>
+              {listening ? (vadActive ? '🔴' : '🎙') : '🎤'}
+            </button>
+            {/* 단발 녹음 */}
+            <button onClick={startVoiceChat}
+              disabled={chatLoading || listening || !settings.claudeSessionKey}
+              title="한 번 말하기"
+              className="px-2 py-2 rounded-xl text-sm transition shrink-0 bg-gray-700 hover:bg-gray-600 text-gray-400 disabled:opacity-40">
+              ⏺
+            </button>
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder="메시지 입력…"
+              placeholder={listening ? '듣는 중…' : '메시지 입력…'}
               className="flex-1 bg-gray-800 text-sm text-gray-200 rounded-xl px-3 py-2 outline-none border border-gray-700 focus:border-cyan-600 placeholder-gray-600"
             />
             <button
