@@ -41,8 +41,16 @@ if %ERRORLEVEL%==0 (
 
 netstat -ano | findstr ":5173" | findstr "LISTENING" >nul
 if %ERRORLEVEL%==0 (
-    echo Vite already running
+    echo Dashboard Vite already running
 ) else (
-    start "Vite Server" /min "C:\Program Files\nodejs\npm.cmd" run dev
-    echo Vite server started
+    start "Dashboard Vite" /min /d "D:\MyWork\my-dashboard" "C:\Program Files\nodejs\npm.cmd" run dev
+    echo Dashboard Vite started on 5173
+)
+
+netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
+if %ERRORLEVEL%==0 (
+    echo Mental Avatar Vite already running
+) else (
+    start "Mental Avatar Vite" /min /d "D:\MyWork\mental-avatar\frontend" "C:\Program Files\nodejs\npm.cmd" run dev
+    echo Mental Avatar Vite started on 5174
 )
