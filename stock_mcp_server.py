@@ -6,7 +6,7 @@ Yahoo Finance(주식) + wttr.in(날씨) + imaplib(메일)
 포트: http://127.0.0.1:8765/mcp
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import yfinance as yf
 import requests as req_lib
@@ -854,6 +854,74 @@ def summarize_web_url(url, summary_sentences=5):
         'pagesRead': 1,
         'extractor': 'web',
     }
+
+
+def _sapi_tts_wav(text, voice_name='mine'):
+    import os as _os
+    import tempfile as _tempfile
+    import pythoncom as _pythoncom
+    import win32com.client as _win32
+
+    _pythoncom.CoInitialize()
+    tmp_path = None
+    try:
+        speaker = _win32.Dispatch('SAPI.SpVoice')
+        voices = speaker.GetVoices()
+
+        chosen = None
+        try:
+            count = int(getattr(voices, 'Count', 0))
+        except Exception:
+            count = 0
+        for i in range(count):
+            try:
+                voice = voices.Item(i)
+                desc = (voice.GetDescription() or '').lower()
+                if any(token in desc for token in ('korean', 'heami', 'sunhi', 'jiwoo', 'ko-kr', '한국')):
+                    chosen = voice
+                    break
+            except Exception:
+                continue
+        if chosen is None and count > 0:
+            try:
+                chosen = voices.Item(0)
+            except Exception:
+                chosen = None
+        if chosen is not None:
+            speaker.Voice = chosen
+
+        rate_map = {
+            'mine': 0,
+            'pretty': 1,
+            'child': 2,
+            'calm': -1,
+            'bright': 1,
+        }
+        speaker.Rate = rate_map.get((voice_name or '').strip().lower(), 0)
+        speaker.Volume = 100
+
+        fd, tmp_path = _tempfile.mkstemp(suffix='.wav')
+        _os.close(fd)
+        stream = _win32.Dispatch('SAPI.SpFileStream')
+        try:
+            stream.Open(tmp_path, 3, False)
+            speaker.AudioOutputStream = stream
+            speaker.Speak(text)
+        finally:
+            try:
+                stream.Close()
+            except Exception:
+                pass
+
+        with open(tmp_path, 'rb') as f:
+            return f.read()
+    finally:
+        try:
+            if tmp_path:
+                _os.remove(tmp_path)
+        except Exception:
+            pass
+        _pythoncom.CoUninitialize()
 
 import json as _json
 import uuid as _uuid
@@ -1805,6 +1873,39 @@ def bridge_poll():
     return _orig_bridge_poll()
 # 라우트 재등록
 app.view_functions['bridge_poll'] = bridge_poll
+
+@app.route('/pdf-proxy', methods=['GET'])
+def pdf_proxy():
+    """원격 PDF가 frame-ancestors CSP로 iframe 미리보기를 막는 경우를 위해 같은 출처로 중계한다."""
+    from urllib.parse import urlparse as _urlparse
+    url = request.args.get('url', '')
+    parsed = _urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        return jsonify({'error': 'http 또는 https URL만 지원합니다.'}), 400
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 MyDashboardMCP/1.0'}
+        resp = req_lib.get(url, timeout=20, headers=headers)
+        resp.raise_for_status()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+    content_type = resp.headers.get('content-type', 'application/pdf')
+    return Response(resp.content, mimetype=content_type)
+
+
+@app.route('/avatar/tts_only', methods=['POST'])
+def avatar_tts_only():
+    payload = request.get_json(silent=True) if request.is_json else {}
+    text = (request.form.get('text') or (payload or {}).get('text') or '').strip()
+    voice = request.form.get('voice') or (payload or {}).get('voice') or 'mine'
+    if not text:
+        return jsonify({'error': 'text가 비어 있습니다.'}), 400
+    try:
+        audio = _sapi_tts_wav(text, voice)
+        return Response(audio, mimetype='audio/wav')
+    except Exception as e:
+        logging.exception('TTS 생성 실패')
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/restart', methods=['POST'])
 def restart_servers():

@@ -50,12 +50,26 @@ function CustomIcon() {
   )
 }
 
+function OllamaIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <path d="M5 2.5C5 1.67 5.67 1 6.5 1h2c.83 0 1.5.67 1.5 1.5V4c1.1.5 2 1.6 2 3v4.5c0 1.1-.9 2-2 2H5.5c-1.1 0-2-.9-2-2V7c0-1.4.9-2.5 2-3V2.5Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <circle cx="6" cy="8" r="0.9" fill="currentColor" />
+      <circle cx="9" cy="8" r="0.9" fill="currentColor" />
+    </svg>
+  )
+}
+
 const PROVIDERS: { id: AiProvider; label: string; icon: React.ReactNode; active: string }[] = [
+  { id: 'ollama',     label: 'Ollama (로컬)', icon: <OllamaIcon />, active: 'bg-sky-50 text-sky-600 border-sky-300' },
   { id: 'claude',     label: 'Claude API', icon: <ClaudeIcon />,  active: 'bg-orange-50 text-orange-600 border-orange-300' },
   { id: 'claude-web', label: 'Claude.ai 구독', icon: <ClaudeIcon />, active: 'bg-amber-50 text-amber-600 border-amber-300' },
   { id: 'chatgpt',    label: 'ChatGPT',    icon: <ChatGPTIcon />, active: 'bg-green-50 text-green-600 border-green-300' },
   { id: 'custom',     label: 'Custom',     icon: <CustomIcon />, active: 'bg-purple-50 text-purple-600 border-purple-300' },
 ]
+
+const OLLAMA_ENDPOINT = 'http://localhost:11434/v1'
+const OLLAMA_MODEL = 'gemma4:e2b'
 
 export default function AI({ todos, notes, calendar, settings, onProviderChange, onNavigate }: Props) {
   const [mode, setMode] = useState<Mode>('briefing')
@@ -64,7 +78,7 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange,
   const [loading, setLoading] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const provider = settings.aiProvider ?? 'claude'
+  const provider = settings.aiProvider ?? 'ollama'
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -90,7 +104,9 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange,
     system: string,
     onDelta: (text: string) => void,
   ) {
-    if (provider === 'claude') {
+    if (provider === 'ollama') {
+      return streamChatOpenAI('', OLLAMA_ENDPOINT, OLLAMA_MODEL, msgs, system, onDelta)
+    } else if (provider === 'claude') {
       return streamChat(settings.anthropicApiKey, msgs, system, onDelta)
     } else if (provider === 'claude-web') {
       return streamClaudeWeb(settings.claudeSessionKey, settings.mcpEndpoint, msgs, system, onDelta)
@@ -101,21 +117,25 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange,
     }
   }
 
-  const noKey = provider === 'claude'
-    ? !settings.anthropicApiKey
-    : provider === 'claude-web'
-      ? !settings.claudeSessionKey
-      : provider === 'chatgpt'
-        ? !settings.openaiApiKey
-        : !settings.customAiEndpoint
+  const noKey = provider === 'ollama'
+    ? false
+    : provider === 'claude'
+      ? !settings.anthropicApiKey
+      : provider === 'claude-web'
+        ? !settings.claudeSessionKey
+        : provider === 'chatgpt'
+          ? !settings.openaiApiKey
+          : !settings.customAiEndpoint
 
-  const noKeyMsg = provider === 'claude'
-    ? '설정에서 Anthropic API 키를 입력하면 AI 기능을 사용할 수 있습니다.'
-    : provider === 'claude-web'
-      ? '설정에서 Claude.ai 구독 계정으로 연결하세요.'
-      : provider === 'chatgpt'
-        ? '설정에서 OpenAI API 키를 입력하면 ChatGPT를 사용할 수 있습니다.'
-        : '설정에서 Custom AI 엔드포인트를 입력하면 사용할 수 있습니다.'
+  const noKeyMsg = provider === 'ollama'
+    ? `로컬 Ollama(${OLLAMA_ENDPOINT})가 실행 중이어야 합니다.`
+    : provider === 'claude'
+      ? '설정에서 Anthropic API 키를 입력하면 AI 기능을 사용할 수 있습니다.'
+      : provider === 'claude-web'
+        ? '설정에서 Claude.ai 구독 계정으로 연결하세요.'
+        : provider === 'chatgpt'
+          ? '설정에서 OpenAI API 키를 입력하면 ChatGPT를 사용할 수 있습니다.'
+          : '설정에서 Custom AI 엔드포인트를 입력하면 사용할 수 있습니다.'
 
   async function handleGenerate() {
     if (noKey) return

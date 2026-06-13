@@ -7,7 +7,7 @@ const DEFAULTS: Settings = {
   openaiApiKey: '',
   customAiEndpoint: '',
   customAiModel: '',
-  aiProvider: 'claude',
+  aiProvider: 'ollama',
   claudeSessionKey: '',
   weatherApiKey: '',
   finnhubApiKey: '',

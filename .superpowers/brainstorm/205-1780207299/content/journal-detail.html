@@ -1,0 +1,77 @@
+<h2>저널 뷰 — 최종 목업</h2>
+<p class="subtitle">이 디자인으로 구현할게요. 확인해주세요.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Journal — 저널</div>
+  <div class="mockup-body" style="padding:0;overflow:hidden;">
+
+    <!-- 분석 상단 배너 -->
+    <div style="background:#f0fdf4;border-bottom:1px solid #bbf7d0;padding:12px 16px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:11px;color:#16a34a;font-weight:700;">✦ 나 분석</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <span style="background:#dcfce7;color:#15803d;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:500;">효율 지향형</span>
+        <span style="background:#dcfce7;color:#15803d;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:500;">시각 스토리 선호</span>
+        <span style="background:#dcfce7;color:#15803d;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:500;">반복 학습자</span>
+        <span style="background:#dcfce7;color:#15803d;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:500;">도구 자동화 추구</span>
+      </div>
+      <span style="margin-left:auto;font-size:10px;color:#6b7280;">어제 분석 · 다음 자정 갱신</span>
+    </div>
+
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
+
+      <!-- 입력 영역 -->
+      <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+        <textarea style="border:none;outline:none;width:100%;resize:none;font-size:13px;color:#111827;font-family:inherit;min-height:56px;" placeholder="오늘 있었던 일, 본 것, 느낀 것을 짧게 남겨요..."></textarea>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <!-- 기본 태그 -->
+          <span style="background:#f3f4f6;color:#374151;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">업무</span>
+          <span style="background:#f3f4f6;color:#374151;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">일상</span>
+          <span style="background:#1d4ed8;color:white;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">영화</span>
+          <span style="background:#f3f4f6;color:#374151;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">책</span>
+          <span style="background:#f3f4f6;color:#374151;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">음악</span>
+          <span style="background:#f3f4f6;color:#374151;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">기타</span>
+          <!-- Claude 자동 추천 태그 -->
+          <span style="background:#ede9fe;color:#7c3aed;font-size:11px;padding:3px 10px;border-radius:999px;cursor:pointer;">✦ 리뷰</span>
+          <button style="margin-left:auto;background:#111827;color:white;border:none;padding:5px 14px;border-radius:7px;font-size:12px;cursor:pointer;">저장</button>
+        </div>
+      </div>
+
+      <!-- 카드 그리드 -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+        <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;padding:2px 8px;border-radius:999px;">영화</span>
+            <span style="font-size:10px;color:#9ca3af;">5월 31일</span>
+          </div>
+          <p style="font-size:12px;color:#111827;margin:0;line-height:1.5;">인터스텔라 재관람. 시간의 상대성 장면에서 또 울었다. 왜 볼 때마다 새롭지.</p>
+          <div style="margin-top:6px;display:flex;gap:4px;">
+            <span style="background:#ede9fe;color:#7c3aed;font-size:10px;padding:1px 6px;border-radius:999px;">✦ 감동</span>
+          </div>
+        </div>
+        <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <span style="background:#fef3c7;color:#d97706;font-size:10px;padding:2px 8px;border-radius:999px;">업무</span>
+            <span style="font-size:10px;color:#9ca3af;">5월 31일</span>
+          </div>
+          <p style="font-size:12px;color:#111827;margin:0;line-height:1.5;">Chrome CDP 자동 시작 설정. 이제 대시보드 켜면 Claude 연결도 같이 된다.</p>
+          <div style="margin-top:6px;display:flex;gap:4px;">
+            <span style="background:#ede9fe;color:#7c3aed;font-size:10px;padding:1px 6px;border-radius:999px;">✦ 자동화</span>
+          </div>
+        </div>
+        <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <span style="background:#f0fdf4;color:#16a34a;font-size:10px;padding:2px 8px;border-radius:999px;">일상</span>
+            <span style="font-size:10px;color:#9ca3af;">5월 30일</span>
+          </div>
+          <p style="font-size:12px;color:#111827;margin:0;line-height:1.5;">아침에 커피 마시면서 AGI 뉴스 읽기. 요즘 이게 루틴이 됐다.</p>
+          <div style="margin-top:6px;display:flex;gap:4px;">
+            <span style="background:#ede9fe;color:#7c3aed;font-size:10px;padding:1px 6px;border-radius:999px;">✦ 루틴</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">이 디자인으로 괜찮으면 "좋아"라고 해주세요. 수정할 부분 있으면 말씀해주세요.</p>

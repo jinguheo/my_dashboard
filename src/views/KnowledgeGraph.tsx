@@ -2,9 +2,12 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { streamClaudeWeb } from '@/services/claudeWeb'
+import { streamChatOpenAI } from '@/services/openai'
 import type { Settings } from '@/types'
 
 const API = 'http://127.0.0.1:8766'
+const OLLAMA_ENDPOINT = 'http://localhost:11434/v1'
+const OLLAMA_MODEL = 'gemma4:e2b'
 
 // ── 타입 ──────────────────────────────────────────────
 interface SearchResult {
@@ -65,7 +68,7 @@ ${gaps}
 3~5문장. 한국어. 통찰력 있게.`
 
 // ── 탭 1: 검색 + 아바타 요약 ──────────────────────────
-function SearchTab({ settings }: { settings: Settings }) {
+function SearchTab() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -91,37 +94,37 @@ function SearchTab({ settings }: { settings: Settings }) {
   }, [query])
 
   const loadSummary = useCallback(async () => {
-    const mcpEndpoint = settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp'
-    const sessionKey = settings.claudeSessionKey || ''
     setSummaryLoading(true)
     setSummary(null)
     try {
       // 1. 8766에서 구조 데이터(관심사·트렌드·갭) 가져오기
       const data = await apiFetch('/avatar/summary')
+      setSummary(data)
 
-      // 2. Claude.ai 세션으로 요약 텍스트 직접 생성
-      if (sessionKey && mcpEndpoint) {
-        const prompt = AVATAR_PROMPT(
-          JSON.stringify(data.core_interests, null, 2),
-          JSON.stringify(data.trends?.slice(0, 8), null, 2),
-          JSON.stringify(data.gaps?.slice(0, 5), null, 2),
-        )
-        let summaryText = ''
-        setSummary({ ...data, summary: '' })
-        await streamClaudeWeb(sessionKey, mcpEndpoint,
+      // 2. 로컬 Ollama로 1인칭 요약 텍스트 생성 (실패해도 위 구조 데이터는 유지)
+      const prompt = AVATAR_PROMPT(
+        JSON.stringify(data.core_interests, null, 2),
+        JSON.stringify(data.trends?.slice(0, 8), null, 2),
+        JSON.stringify(data.gaps?.slice(0, 5), null, 2),
+      )
+      let summaryText = ''
+      setSummary({ ...data, summary: '' })
+      try {
+        await streamChatOpenAI('', OLLAMA_ENDPOINT, OLLAMA_MODEL,
           [{ role: 'user', content: prompt }], '', (delta) => {
             summaryText += delta
             setSummary(prev => prev ? { ...prev, summary: summaryText } : null)
           })
-      } else {
-        setSummary(data)
+      } catch (e: any) {
+        const errMsg = e?.message || String(e)
+        setSummary(prev => ({ ...(prev ?? data), summary: `(AI 요약 생성 실패: ${errMsg})` }))
       }
     } catch {
       setSummary(null)
     } finally {
       setSummaryLoading(false)
     }
-  }, [settings])
+  }, [])
 
   return (
     <div className="flex gap-5 h-full min-h-0">
@@ -853,13 +856,8 @@ function PreferenceTab({ settings }: { settings: Settings }) {
     setAnalyzing(true)
     setAnalysis('')
     try {
-      const mcpEndpoint = settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp'
-      const sessionKey  = settings.claudeSessionKey || ''
-
-      if (sessionKey && mcpEndpoint) {
-        // 행동 데이터를 직접 프롬프트에 담아 streamClaudeWeb 호출
-        const b = behavior!
-        const prompt = `당신은 한 사람의 행동 데이터를 분석하는 전문가입니다.
+      const b = behavior!
+      const prompt = `당신은 한 사람의 행동 데이터를 분석하는 전문가입니다.
 아래는 최근 ${days}일간의 행동 패턴입니다.
 
 자주 열어본 파일:
@@ -884,17 +882,26 @@ ${b.topic_access.slice(0,8).map(t => `- ${t.name} (${t.access_cnt}회)`).join('\
 
 데이터에서 보이는 것만 기반으로, 구체적이고 통찰력 있게 작성하세요.`
 
-        await streamClaudeWeb(sessionKey, mcpEndpoint,
+      const provider = settings.aiProvider ?? 'ollama'
+      if (provider === 'claude-web' && settings.claudeSessionKey) {
+        const mcpEndpoint = settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp'
+        await streamClaudeWeb(settings.claudeSessionKey, mcpEndpoint,
+          [{ role: 'user', content: prompt }], '', (delta) => {
+            setAnalysis(prev => prev + delta)
+          })
+      } else if (provider === 'ollama') {
+        // 로컬 Ollama로 행동 분석 생성 (기본 연결)
+        await streamChatOpenAI('', OLLAMA_ENDPOINT, OLLAMA_MODEL,
           [{ role: 'user', content: prompt }], '', (delta) => {
             setAnalysis(prev => prev + delta)
           })
       } else {
-        // MCP 없으면 서버 API 호출
+        // 서버 API 폴백
         const data = await apiFetch(`/profile/analysis?days=${days}`)
         setAnalysis(data.analysis)
       }
-    } catch (e) {
-      setAnalysis('분석 실패: Claude 세션을 확인해주세요.')
+    } catch (e: any) {
+      setAnalysis(`분석 실패: ${e?.message || String(e)}`)
     } finally { setAnalyzing(false) }
   }
 
@@ -1495,7 +1502,7 @@ export default function KnowledgeGraph({ settings }: { settings: Settings }) {
           </div>
         ) : (
           <>
-            {tab === 'search'     && <SearchTab settings={settings} />}
+            {tab === 'search'     && <SearchTab />}
             {tab === 'ingest'     && <IngestTab />}
             {tab === 'graph'      && <GraphTab />}
             {tab === 'files'      && <FilesTab />}

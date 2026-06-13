@@ -101,7 +101,7 @@ export interface JournalAnalysis {
   analyzedAt: string
 }
 
-export type AiProvider = 'claude' | 'chatgpt' | 'custom' | 'claude-web'
+export type AiProvider = 'claude' | 'chatgpt' | 'custom' | 'claude-web' | 'ollama'
 
 export interface Settings {
   anthropicApiKey: string

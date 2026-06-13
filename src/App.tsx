@@ -60,12 +60,12 @@ export default function App() {
 
   usePolling({ settings, onBadge: handleBadge, onToast: handleToast, navigate: handleNavigate })
 
-  // 시작 시 Chrome 쿠키에서 Claude.ai 세션 키 자동 갱신
+  // 시작 시 Chrome 쿠키에서 Claude.ai 세션 키 자동 갱신 (제공자 선택은 설정의 aiProvider를 따름, 기본값 ollama)
   useEffect(() => {
     if (!settings.mcpEndpoint) return
     claudeWebAutoConnect(settings.mcpEndpoint).then(key => {
       if (key && key !== settings.claudeSessionKey) {
-        updateSettings({ claudeSessionKey: key, aiProvider: 'claude-web' })
+        updateSettings({ claudeSessionKey: key })
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

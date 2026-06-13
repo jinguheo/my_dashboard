@@ -1,0 +1,88 @@
+<h2>저널 뷰 레이아웃 — 어떤 형태가 맞나요?</h2>
+<p class="subtitle">기록 카드와 "나 분석" 결과를 어떻게 배치할지 선택해주세요</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f9fafb;border-radius:8px;font-size:12px;font-family:monospace;">
+      <div style="display:flex;gap:8px;height:180px;">
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+          <div style="background:#111827;color:white;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:bold;">+ 새 기록</div>
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:6px;padding:8px;flex:1;">
+            <div style="font-size:10px;color:#6b7280;margin-bottom:4px;">2026-05-31 · 업무 ⭐⭐⭐</div>
+            <div style="font-size:11px;">오늘 Chrome 자동 시작 설정 완료. 훨씬 편해졌다.</div>
+          </div>
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:6px;padding:8px;flex:1;">
+            <div style="font-size:10px;color:#6b7280;margin-bottom:4px;">2026-05-30 · 영화 ⭐⭐⭐⭐</div>
+            <div style="font-size:11px;">인터스텔라 재관람. 여전히 감동적.</div>
+          </div>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px;">
+            <div style="font-size:10px;color:#16a34a;font-weight:bold;margin-bottom:2px;">✦ 나 분석 (오늘)</div>
+            <div style="font-size:10px;color:#374151;">효율 지향형 · 시각적 스토리 선호 · 반복 학습자</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 세로 피드형</h3>
+      <p>기록이 시간순으로 쌓이고, 맨 아래에 분석 결과 카드가 붙는 구조. 심플하고 빠르게 스크롤.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f9fafb;border-radius:8px;font-size:12px;">
+      <div style="display:flex;gap:8px;height:180px;">
+        <div style="flex:2;display:flex;flex-direction:column;gap:6px;">
+          <div style="background:#111827;color:white;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:bold;">+ 새 기록</div>
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:6px;padding:8px;flex:1;">
+            <div style="font-size:10px;color:#6b7280;margin-bottom:4px;">2026-05-31 · 업무 ⭐⭐⭐</div>
+            <div style="font-size:11px;">오늘 Chrome 자동 시작 설정 완료.</div>
+          </div>
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:6px;padding:8px;flex:1;">
+            <div style="font-size:10px;color:#6b7280;margin-bottom:4px;">2026-05-30 · 영화 ⭐⭐⭐⭐</div>
+            <div style="font-size:11px;">인터스텔라 재관람.</div>
+          </div>
+        </div>
+        <div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:10px;color:#16a34a;font-weight:bold;">✦ 나 분석</div>
+          <div style="font-size:10px;color:#374151;line-height:1.5;">효율 지향형<br/>시각 스토리 선호<br/>반복 학습자<br/><br/>🎬 영화 4편<br/>💼 업무 12건</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — 좌우 분할형</h3>
+      <p>왼쪽에 기록 피드, 오른쪽에 분석 패널 고정. 분석 결과를 항상 옆에서 볼 수 있음.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f9fafb;border-radius:8px;font-size:12px;">
+      <div style="display:flex;flex-direction:column;gap:6px;height:180px;">
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px;">
+          <div style="font-size:10px;color:#16a34a;font-weight:bold;margin-bottom:4px;">✦ 나 분석 — 효율 지향형 · 시각 스토리 선호</div>
+          <div style="display:flex;gap:4px;">
+            <span style="background:#dcfce7;color:#16a34a;font-size:9px;padding:2px 6px;border-radius:999px;">업무 12건</span>
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:9px;padding:2px 6px;border-radius:999px;">영화 4편</span>
+            <span style="background:#fef9c3;color:#a16207;font-size:9px;padding:2px 6px;border-radius:999px;">책 2권</span>
+          </div>
+        </div>
+        <div style="background:#111827;color:white;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:bold;text-align:center;">+ 새 기록</div>
+        <div style="display:flex;gap:6px;flex:1;">
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:6px;padding:8px;flex:1;font-size:10px;">
+            <div style="color:#6b7280;margin-bottom:2px;">업무 ⭐⭐⭐</div>
+            Chrome 자동 시작 완료
+          </div>
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:6px;padding:8px;flex:1;font-size:10px;">
+            <div style="color:#6b7280;margin-bottom:2px;">영화 ⭐⭐⭐⭐</div>
+            인터스텔라 재관람
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — 분석 상단 + 카드 그리드형</h3>
+      <p>상단에 분석 요약 배너 고정, 아래에 기록 카드를 격자로 배치. 분석이 항상 눈에 띔.</p>
+    </div>
+  </div>
+
+</div>

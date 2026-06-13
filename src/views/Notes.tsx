@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { EditorView } from '@codemirror/view'
+import { EditorSelection } from '@codemirror/state'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import DOMPurify from 'dompurify'
@@ -48,7 +49,63 @@ function clearHtml(id: string) {
   localStorage.removeItem(HTML_KEY(id))
 }
 
-type ViewMode = 'edit' | 'split' | 'preview'
+/** 공백 연속을 단일 스페이스로 압축하면서, 결과 문자열의 각 위치가 원본의 어느 인덱스에서 왔는지 기록한다 */
+function normalizeWithMap(s: string): { norm: string; map: number[] } {
+  let norm = ''
+  const map: number[] = []
+  let inWs = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (/\s/.test(ch)) {
+      if (!inWs) { norm += ' '; map.push(i); inWs = true }
+    } else {
+      norm += ch; map.push(i); inWs = false
+    }
+  }
+  return { norm, map }
+}
+
+/**
+ * 미리보기에서 더블클릭한 텍스트 노드/오프셋을 마크다운 원문(content) 내 위치로 매핑한다.
+ * 렌더링된 텍스트는 보통 마크다운 문법 기호(**, #, [] 등)를 뺀 채로도 원문 안에 그대로
+ * 부분 문자열로 남아있으므로(굵게/링크/헤딩 안쪽 텍스트 등), 공백을 정규화한 뒤
+ * 부분 문자열 검색으로 위치를 찾는다. 일치하는 부분을 못 찾으면 null을 반환한다.
+ */
+function findSourcePosition(content: string, textNode: Text, clickOffset: number): number | null {
+  const full = textNode.textContent || ''
+  const trimmed = full.trim()
+  if (!trimmed) return null
+  const leadWs = full.length - full.replace(/^\s+/, '').length
+
+  const { norm: needleNorm, map: needleMap } = normalizeWithMap(trimmed)
+  if (!needleNorm) return null
+  const { norm: contentNorm, map: contentMap } = normalizeWithMap(content)
+
+  let localOffset = clickOffset - leadWs
+  localOffset = Math.max(0, Math.min(localOffset, trimmed.length))
+
+  let needleNormOffset = needleMap.findIndex(idx => idx >= localOffset)
+  if (needleNormOffset === -1) needleNormOffset = needleNorm.length
+
+  // 정확히 일치하는 부분이 없으면 끝에서 단어 단위로 줄여가며 재시도
+  let needle = needleNorm
+  let matchIdx = -1
+  while (needle.length > 0) {
+    matchIdx = contentNorm.indexOf(needle)
+    if (matchIdx !== -1) break
+    const cut = needle.replace(/\s*\S+\s*$/, '')
+    if (!cut || cut === needle) break
+    needle = cut
+  }
+  if (matchIdx === -1) return null
+
+  const targetNormOffset = Math.min(needleNormOffset, needle.length)
+  const targetContentIdx = matchIdx + targetNormOffset
+  if (targetContentIdx >= contentMap.length) return content.length
+  return contentMap[targetContentIdx]
+}
+
+type ViewMode = 'edit' | 'preview'
 type ListLayout = 'list' | 'grid'
 interface Props { notes: NoteState }
 
@@ -107,17 +164,27 @@ function PreviewPane({ noteId, content }: { noteId: string; content: string }) {
 
 export default function Notes({ notes: noteState }: Props) {
   const [activeId, setActiveId] = useState<string | null>(noteState.notes[0]?.id ?? null)
-  const [mode, setMode] = useState<ViewMode>('split')
+  const [mode, setMode] = useState<ViewMode>('edit')
   const [layout, setLayout] = useState<ListLayout>('list')
+  const [search, setSearch] = useState('')
   const [, forceUpdate] = useState(0)
   const editorWrapRef = useRef<HTMLDivElement>(null)
   const activeIdRef = useRef(activeId)
   const noteStateRef = useRef(noteState)
+  const pendingCursorRef = useRef<number | null>(null)
 
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { noteStateRef.current = noteState }, [noteState])
 
   const activeNote = noteState.notes.find(n => n.id === activeId) ?? null
+
+  const filteredNotes = (() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return noteState.notes
+    return noteState.notes.filter(n =>
+      n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)
+    )
+  })()
 
   // document 캡처 단계에서 paste 가로채기
   useEffect(() => {
@@ -150,7 +217,27 @@ export default function Notes({ notes: noteState }: Props) {
   function handleCreate() {
     const id = noteState.create()
     setActiveId(id)
-    setMode('split')
+    setMode('edit')
+  }
+
+  /** 미리보기 더블클릭 → 클릭 위치에 대응하는 마크다운 소스 위치로 커서를 옮기고 편집 모드로 전환 */
+  function handlePreviewDoubleClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (!activeNote) return
+    const docAny = document as any
+    let node: Node | null = null
+    let offset = 0
+    if (docAny.caretRangeFromPoint) {
+      const range = docAny.caretRangeFromPoint(e.clientX, e.clientY)
+      if (range) { node = range.startContainer; offset = range.startOffset }
+    } else if (docAny.caretPositionFromPoint) {
+      const pos = docAny.caretPositionFromPoint(e.clientX, e.clientY)
+      if (pos) { node = pos.offsetNode; offset = pos.offset }
+    }
+
+    pendingCursorRef.current = (node && node.nodeType === Node.TEXT_NODE)
+      ? findSourcePosition(activeNote.content, node as Text, offset)
+      : null
+    setMode('edit')
   }
 
   function handleDelete(id: string) {
@@ -194,11 +281,33 @@ export default function Notes({ notes: noteState }: Props) {
             >+</button>
           </div>
         </div>
+        <div className="px-3 py-2 border-b border-surface-border">
+          <div className="relative">
+            <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M8 8L11 11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="노트 검색..."
+              className="w-full pl-7 pr-6 py-1.5 text-xs bg-white border border-surface-border rounded-md outline-none focus:border-gray-400 placeholder-gray-400 text-gray-800"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none"
+              >×</button>
+            )}
+          </div>
+        </div>
         <div className="flex-1 overflow-auto">
           {noteState.notes.length === 0 ? (
             <p className="text-xs text-gray-400 text-center mt-8 px-4">노트가 없습니다.<br />+ 버튼으로 만들어보세요.</p>
+          ) : filteredNotes.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center mt-8 px-4">검색 결과가 없습니다.</p>
           ) : layout === 'list' ? (
-            noteState.notes.map(note => (
+            filteredNotes.map(note => (
               <button
                 key={note.id}
                 onClick={() => setActiveId(note.id)}
@@ -217,7 +326,7 @@ export default function Notes({ notes: noteState }: Props) {
             ))
           ) : (
             <div className="p-2 grid grid-cols-2 gap-2">
-              {noteState.notes.map(note => (
+              {filteredNotes.map(note => (
                 <button
                   key={note.id}
                   onClick={() => setActiveId(note.id)}
@@ -259,12 +368,12 @@ export default function Notes({ notes: noteState }: Props) {
             />
             <span className="text-xs text-gray-400 shrink-0">{relativeTime(activeNote.updatedAt)} 수정</span>
             <div className="flex rounded-lg border border-surface-border overflow-hidden text-xs shrink-0">
-              {(['edit', 'split', 'preview'] as ViewMode[]).map((m, i) => (
+              {(['edit', 'preview'] as ViewMode[]).map((m, i) => (
                 <button key={m} onClick={() => setMode(m)}
                   className={`px-3 py-1.5 transition-colors ${i > 0 ? 'border-l border-surface-border' : ''} ${
                     mode === m ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                   }`}>
-                  {m === 'edit' ? '편집' : m === 'split' ? '분할' : '미리보기'}
+                  {m === 'edit' ? '편집' : '미리보기'}
                 </button>
               ))}
             </div>
@@ -272,16 +381,25 @@ export default function Notes({ notes: noteState }: Props) {
 
           {/* 본문 */}
           <div className="flex-1 overflow-hidden flex min-h-0">
-            {(mode === 'edit' || mode === 'split') && (
+            {mode === 'edit' && (
               <div
                 ref={editorWrapRef}
-                className={`overflow-auto px-6 py-4 ${mode === 'split' ? 'w-1/2 border-r border-surface-border' : 'flex-1'}`}
+                className="overflow-auto px-6 py-4 flex-1"
               >
                 <CodeMirror
                   value={activeNote.content}
                   onChange={val => {
                     clearHtml(activeNote.id) // 직접 편집 시 HTML 캐시 제거
                     noteState.update(activeNote.id, { content: val })
+                  }}
+                  onCreateEditor={view => {
+                    const pos = pendingCursorRef.current
+                    if (pos !== null) {
+                      const clamped = Math.max(0, Math.min(pos, view.state.doc.length))
+                      view.dispatch({ selection: EditorSelection.cursor(clamped), scrollIntoView: true })
+                      view.focus()
+                      pendingCursorRef.current = null
+                    }
                   }}
                   extensions={[markdown(), theme]}
                   placeholder="Claude 채팅 내용을 붙여넣거나 마크다운으로 작성하세요..."
@@ -290,8 +408,12 @@ export default function Notes({ notes: noteState }: Props) {
                 />
               </div>
             )}
-            {(mode === 'preview' || mode === 'split') && (
-              <div className={`overflow-auto px-6 py-4 ${mode === 'split' ? 'w-1/2' : 'flex-1'}`}>
+            {mode === 'preview' && (
+              <div
+                className="overflow-auto px-6 py-4 flex-1"
+                onDoubleClick={handlePreviewDoubleClick}
+                title="더블클릭하면 해당 위치의 편집 화면으로 이동합니다"
+              >
                 <PreviewPane noteId={activeNote.id} content={activeNote.content} />
               </div>
             )}
