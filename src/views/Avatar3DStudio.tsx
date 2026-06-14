@@ -5,7 +5,7 @@
  * - AI ??? ?¤ì ??aiProvider(ê¸°ë³¸ Ollama)???°ë¼ ?°ê²°, ?ëµ??TTSë¡??¬ì
  * - VAD ê¸°ë° ?ë STT
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type Dispatch, type SetStateAction } from 'react'
 import * as THREE from 'three'
 import ChatMarkdown from '@/components/ChatMarkdown'
 import { streamClaudeWeb } from '@/services/claudeWeb'
@@ -21,8 +21,12 @@ const OLLAMA_MODEL = 'gemma4:e2b'
 
 const GREETING = '안녕하세요. 반갑습니다. 무엇이든 안내해드릴게요.'
 
-interface ChatMsg { role: 'user' | 'assistant'; content: string; source?: 'typed' | 'stt' }
-interface Props { settings: Settings }
+export interface ChatMsg { role: 'user' | 'assistant'; content: string; source?: 'typed' | 'stt' }
+interface Props {
+  settings: Settings
+  messages: ChatMsg[]
+  setMessages: Dispatch<SetStateAction<ChatMsg[]>>
+}
 
 // ?? 3D ?ë°? ?¸í ?¤í????ë³´êµ???
 interface AvatarStyle {
@@ -55,7 +59,7 @@ const TEMPLATE_VOICES: VoiceOption[] = [
 const VOICE_OPTION_KEY = 'mental-avatar-3d-voice'
 const SPLIT_RATIO_KEY = 'mental-avatar-3d-split'
 
-export default function Avatar3DStudio({ settings }: Props) {
+export default function Avatar3DStudio({ settings, messages, setMessages }: Props) {
   const [avatarStyleId, setAvatarStyleId] = useState<string>(() => {
     try { return localStorage.getItem(AVATAR_STYLE_KEY) || AVATAR_STYLES[0].id } catch { return AVATAR_STYLES[0].id }
   })
@@ -116,6 +120,8 @@ export default function Avatar3DStudio({ settings }: Props) {
   const jawRef     = useRef<THREE.Mesh | null>(null)
   const lipUpRef   = useRef<THREE.Mesh | null>(null)
   const lipDnRef   = useRef<THREE.Mesh | null>(null)
+  const armLRef    = useRef<THREE.Group | null>(null)
+  const armRRef    = useRef<THREE.Group | null>(null)
   const browLRef   = useRef<THREE.Mesh | null>(null)
   const browRRef   = useRef<THREE.Mesh | null>(null)
   const lidLRef    = useRef<THREE.Mesh | null>(null)
@@ -138,6 +144,10 @@ export default function Avatar3DStudio({ settings }: Props) {
   const handleHeadPose = useCallback((pose: { pitch: number; yaw: number; roll: number } | null) => {
     headPoseRef.current = pose
   }, [])
+  const handGestureRef = useRef<string | null>(null)
+  const handleHandGesture = useCallback((gesture: string | null) => {
+    handGestureRef.current = gesture
+  }, [])
 
   // ë¸ë¼?°ì? ?ë?¬ì ?ì± ??AudioContext???¬ì©???ì¤ì²??ì´??'suspended' ?íë¡??ì???ë¦¬ê° ????
   // ?ì´ì§ ì²??´ë¦­/?¤ì???°ì¹?ì ë¯¸ë¦¬ ?ì±Â·resume ???ë¤ (?ë ?¸ì¬ ê°ì? ë¬´ì ?¤ì² ?¬ì???¤ë¦¬?ë¡).
@@ -158,7 +168,6 @@ export default function Avatar3DStudio({ settings }: Props) {
   }, [])
 
   // ì±í
-  const [messages, setMessages]       = useState<ChatMsg[]>([])
   const [input, setInput]             = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [speaking, setSpeaking]       = useState(false)
@@ -655,13 +664,11 @@ export default function Avatar3DStudio({ settings }: Props) {
       const pose = !analyserRef.current ? headPoseRef.current : null
       const fb = (name: string) => face?.[name] ?? 0
 
-      // ê³ ê° ë°©í¥ ??ì¶ì  ì¤ì´ë©??¬ì©??ë¨¸ë¦¬ ?ì (pitch/yaw/roll)??ê·¸ë?ë¡??°ë¼ê°ê³?
-      // ì¶ì  ?????ë ê¸°ì¡´ ë¯¸ì¸???ì´???ë¤ë¦¼ì ?¬ì©
+      // Head pose is coming from the mirrored camera preview; flip left-right and roll to match it.
       if (pose) {
-        // MediaPipe ì¢íê³ë ì¹´ë©??ê¸°ì??´ë¼ ì¢ì°(yaw)Â·?í(pitch)ê° ?ë°?? ë°ë?ë¡??ê»´??ë¶??ë°ì 
         group.rotation.y += (-pose.yaw   * 0.8 - group.rotation.y) * 0.25
         group.rotation.x += (-pose.pitch * 0.8 - group.rotation.x) * 0.25
-        group.rotation.z += ( pose.roll  * 0.6 - group.rotation.z) * 0.25
+        group.rotation.z += (-pose.roll  * 0.6 - group.rotation.z) * 0.25
       } else {
         group.rotation.y = Math.sin(t * 0.25) * 0.05
         group.rotation.x = Math.sin(t * 0.18) * 0.015
@@ -770,12 +777,24 @@ export default function Avatar3DStudio({ settings }: Props) {
 
   // ?? ?ë ?¸ì¬ (?ì´ì§ ë¡ë ?? ??
   useEffect(() => {
-    const timer = setTimeout(() => {
+    if (messages.length > 0) return
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/conversation/history?view=avatar3d&limit=50`)
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data?.messages) && data.messages.length > 0) {
+          setMessages(data.messages)
+          return
+        }
+      } catch { /* ì²ë¦¬ ?¤í¨ ??ì¸?¬ë¡ ?´ë°± */ }
+      if (cancelled) return
       setMessages([{ role: 'assistant', content: GREETING }])
       respond(GREETING)
     }, 1200)
-    return () => clearTimeout(timer)
-  }, [respond])
+    return () => { cancelled = true; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ?ë°? ?ì¤???ë¡¬?í¸: ë°±ì??/avatar/contextê° ?ë¡?ì¼+ê´?¬ì¬+RAGë¥??µí© ?ì±
   const buildSystemPrompt = useCallback(async (userText: string): Promise<string> => {

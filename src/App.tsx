@@ -11,7 +11,7 @@ import Settings from '@/views/Settings'
 import History from '@/views/History'
 import KnowledgeGraph from '@/views/KnowledgeGraph'
 import AvatarStudio from '@/views/AvatarStudio'
-import Avatar3DStudio from '@/views/Avatar3DStudio'
+import Avatar3DStudio, { type ChatMsg } from '@/views/Avatar3DStudio'
 import Journal from '@/views/Journal'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
@@ -31,6 +31,16 @@ export default function App() {
   const [view, setView] = useState<View>('dashboard')
   const [badges, setBadges] = useState<Partial<Record<View, number>>>({})
   const [toast, setToast] = useState<Toast | null>(null)
+  const [avatar3dMessages, setAvatar3dMessages] = useState<ChatMsg[]>(() => {
+    try {
+      const raw = localStorage.getItem('mental-avatar-3d-chat')
+      if (raw) return JSON.parse(raw)
+    } catch { /* ignore */ }
+    return []
+  })
+  useEffect(() => {
+    localStorage.setItem('mental-avatar-3d-chat', JSON.stringify(avatar3dMessages))
+  }, [avatar3dMessages])
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const todos = useTodos()
@@ -127,7 +137,7 @@ export default function App() {
         {view === 'knowledge' && <KnowledgeGraph settings={settings} />}
         {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
         {view === 'avatar'    && <AvatarStudio />}
-        {view === 'avatar3d'  && <Avatar3DStudio settings={settings} />}
+        {view === 'avatar3d'  && <Avatar3DStudio settings={settings} messages={avatar3dMessages} setMessages={setAvatar3dMessages} />}
       </main>
 
       {/* In-app toast */}
