@@ -249,7 +249,13 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [stocksLoading, setStocksLoading] = useState(false)
   const [stockError, setStockError] = useState('')
   const [stockSource, setStockSource] = useState<'api-key' | 'mcp' | null>(null)
-  const [aiMessages, setAiMessages] = useState<AIMessage[]>([])
+  const [aiMessages, setAiMessages] = useState<AIMessage[]>(() => {
+    try {
+      const raw = localStorage.getItem('dashboard-ai-chat')
+      if (raw) return JSON.parse(raw)
+    } catch { /* ignore */ }
+    return []
+  })
   const [aiInput, setAiInput] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [shortcutUrl, setShortcutUrl] = useState('')
@@ -324,6 +330,10 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     const el = aiBottomRef.current
     const scroller = el?.parentElement
     if (scroller) scroller.scrollTop = scroller.scrollHeight
+  }, [aiMessages])
+
+  useEffect(() => {
+    localStorage.setItem('dashboard-ai-chat', JSON.stringify(aiMessages))
   }, [aiMessages])
 
   useEffect(() => {
