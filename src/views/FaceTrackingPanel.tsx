@@ -41,9 +41,13 @@ interface Props {
   onBlendshapes?: (scores: Record<string, number> | null) => void
   /** 매 프레임 추적된 머리 회전(라디안, 추적 중단 시 null) — 다른 3D 아바타의 고개 방향 구동에 사용 */
   onHeadPose?: (pose: { pitch: number; yaw: number; roll: number } | null) => void
+  /** 매 프레임 추적된 손 제스처를 전달(추적 중단 시 null) — 다른 3D 아바타의 손 표정에 사용 */
+  onGesture?: (gesture: string | null) => void
 }
 
-export default function FaceTrackingPanel({ className = '', compact = false, onBlendshapes, onHeadPose }: Props) {
+const GESTURE_MODEL = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
+
+export default function FaceTrackingPanel({ className = '', compact = false, onBlendshapes, onHeadPose, onGesture }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const videoRef  = useRef<HTMLVideoElement>(null)
 
@@ -56,12 +60,15 @@ export default function FaceTrackingPanel({ className = '', compact = false, onB
   const rafRef      = useRef<number>(0)
 
   const landmarkerRef = useRef<unknown>(null)
+  const gestureRef    = useRef<unknown>(null)
   const streamRef     = useRef<MediaStream | null>(null)
   const lastTsRef     = useRef(0)
   const onBlendshapesRef = useRef(onBlendshapes)
   useEffect(() => { onBlendshapesRef.current = onBlendshapes }, [onBlendshapes])
   const onHeadPoseRef = useRef(onHeadPose)
   useEffect(() => { onHeadPoseRef.current = onHeadPose }, [onHeadPose])
+  const onGestureRef = useRef(onGesture)
+  useEffect(() => { onGestureRef.current = onGesture }, [onGesture])
 
   const [status, setStatus]           = useState<'idle' | 'loading' | 'tracking' | 'error'>('idle')
   const [statusMsg, setStatusMsg]     = useState('')
@@ -144,16 +151,27 @@ export default function FaceTrackingPanel({ className = '', compact = false, onB
   const initLandmarker = useCallback(async () => {
     setStatus('loading'); setStatusMsg('MediaPipe 로딩 중…')
     try {
-      const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision')
+      const { FaceLandmarker, GestureRecognizer, FilesetResolver } = await import('@mediapipe/tasks-vision')
       const vision = await FilesetResolver.forVisionTasks(MP_WASM)
-      const lm = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MP_MODEL, delegate: 'CPU' },
-        runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
-        minFaceDetectionConfidence: 0.3,
-        minFacePresenceConfidence: 0.3,
-        minTrackingConfidence: 0.3,
-      })
+      const [lm, gesture] = await Promise.all([
+        FaceLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: MP_MODEL, delegate: 'CPU' },
+          runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
+          minFaceDetectionConfidence: 0.3,
+          minFacePresenceConfidence: 0.3,
+          minTrackingConfidence: 0.3,
+        }),
+        GestureRecognizer.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: GESTURE_MODEL, delegate: 'CPU' },
+          runningMode: 'VIDEO',
+          numHands: 2,
+          minHandDetectionConfidence: 0.4,
+          minHandPresenceConfidence: 0.4,
+          minTrackingConfidence: 0.4,
+        }),
+      ])
       landmarkerRef.current = lm
+      gestureRef.current = gesture
       const filtered = FaceLandmarker.FACE_LANDMARKS_TESSELATION.filter(c => c.start < 468 && c.end < 468)
       faceMeshRef.current?.geometry.setIndex(buildTriangles(filtered))
       setStatusMsg('완료'); return lm
@@ -243,6 +261,12 @@ export default function FaceTrackingPanel({ className = '', compact = false, onB
             const euler = new THREE.Euler().setFromRotationMatrix(m, 'YXZ')
             onHeadPoseRef.current({ pitch: euler.x, yaw: euler.y, roll: euler.z })
           }
+          if (onGestureRef.current && gestureRef.current) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const gr = (gestureRef.current as any).recognizeForVideo(video, now)
+            const gesture = gr?.gestures?.[0]?.[0]?.categoryName ?? null
+            onGestureRef.current(gesture)
+          }
         } catch { /* 일시적 오류 무시 */ }
       }
     }
@@ -321,6 +345,7 @@ export default function FaceTrackingPanel({ className = '', compact = false, onB
     setStatus('idle'); setStatusMsg('')
     onBlendshapesRef.current?.(null)
     onHeadPoseRef.current?.(null)
+    onGestureRef.current?.(null)
   }, [])
 
   // ── 녹화 → 립싱크 영상 생성 ──
