@@ -20,6 +20,14 @@ const OLLAMA_ENDPOINT = 'http://localhost:11434/v1'
 const OLLAMA_MODEL = 'gemma4:e2b'
 
 const GREETING = '안녕하세요. 반갑습니다. 무엇이든 안내해드릴게요.'
+const CHAT_SINCE_KEY = 'mental-avatar-3d-chat-since'
+
+// SQLite의 created_at(datetime('now','localtime'))과 동일한 'YYYY-MM-DD HH:MM:SS' 형식(로컬시간)
+function localTimestamp(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 export interface ChatMsg { role: 'user' | 'assistant'; content: string; source?: 'typed' | 'stt' }
 interface Props {
@@ -781,7 +789,8 @@ export default function Avatar3DStudio({ settings, messages, setMessages }: Prop
     let cancelled = false
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`${API}/conversation/history?view=avatar3d&limit=50`)
+        const since = localStorage.getItem(CHAT_SINCE_KEY) || ''
+        const res = await fetch(`${API}/conversation/history?view=avatar3d&limit=50&since=${encodeURIComponent(since)}`)
         const data = await res.json()
         if (!cancelled && Array.isArray(data?.messages) && data.messages.length > 0) {
           setMessages(data.messages)
@@ -795,6 +804,13 @@ export default function Avatar3DStudio({ settings, messages, setMessages }: Prop
     return () => { cancelled = true; clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ?? ?ë¡ ?ì: ?´ì  ?ëë? ???´ì ë¶ë¬?¤ì? ?ëë???ê¸° ?ê° ê¸°ë¡ ???¸ì¬ë¡ ì´ê¸°??
+  const resetChat = useCallback(() => {
+    localStorage.setItem(CHAT_SINCE_KEY, localTimestamp())
+    setMessages([{ role: 'assistant', content: GREETING }])
+    respond(GREETING)
+  }, [respond, setMessages])
 
   // ?ë°? ?ì¤???ë¡¬?í¸: ë°±ì??/avatar/contextê° ?ë¡?ì¼+ê´?¬ì¬+RAGë¥??µí© ?ì±
   const buildSystemPrompt = useCallback(async (userText: string): Promise<string> => {
@@ -965,9 +981,18 @@ export default function Avatar3DStudio({ settings, messages, setMessages }: Prop
 
       <div className="flex-1 min-w-0 flex flex-col border-l border-gray-800 bg-gray-900/95">
         <div className="px-4 py-3 border-b border-gray-800 bg-gray-900">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${hasAiConnection ? 'bg-green-400' : 'bg-red-400'}`} />
-            <h2 className="text-sm font-semibold text-gray-200">아바타 AI</h2>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${hasAiConnection ? 'bg-green-400' : 'bg-red-400'}`} />
+              <h2 className="text-sm font-semibold text-gray-200">아바타 AI</h2>
+            </div>
+            <button
+              onClick={resetChat}
+              className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 rounded px-2 py-0.5 hover:bg-gray-800"
+              title="이전 대화를 지우고 새로 시작합니다"
+            >
+              새로 시작
+            </button>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
             {hasAiConnection ? `${providerLabel} 연결됨 · 음성 재생 준비 완료` : 'AI 연결 안 됨'}
