@@ -9,10 +9,7 @@ import Email from '@/views/Email'
 import Chat from '@/views/Chat'
 import Settings from '@/views/Settings'
 import History from '@/views/History'
-import KnowledgeGraph from '@/views/KnowledgeGraph'
-import AvatarStudio from '@/views/AvatarStudio'
-import Avatar3DStudio, { type ChatMsg } from '@/views/Avatar3DStudio'
-import RealisticAvatar from '@/views/RealisticAvatar'
+import MentalAvatarFrame from '@/views/MentalAvatarFrame'
 import Journal from '@/views/Journal'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
@@ -32,26 +29,6 @@ export default function App() {
   const [view, setView] = useState<View>('dashboard')
   const [badges, setBadges] = useState<Partial<Record<View, number>>>({})
   const [toast, setToast] = useState<Toast | null>(null)
-  const [avatar3dMessages, setAvatar3dMessages] = useState<ChatMsg[]>(() => {
-    try {
-      const raw = localStorage.getItem('mental-avatar-3d-chat')
-      if (raw) return JSON.parse(raw)
-    } catch { /* ignore */ }
-    return []
-  })
-  useEffect(() => {
-    localStorage.setItem('mental-avatar-3d-chat', JSON.stringify(avatar3dMessages))
-  }, [avatar3dMessages])
-  const [realisticMessages, setRealisticMessages] = useState<ChatMsg[]>(() => {
-    try {
-      const raw = localStorage.getItem('mental-avatar-realistic-chat')
-      if (raw) return JSON.parse(raw)
-    } catch { /* ignore */ }
-    return []
-  })
-  useEffect(() => {
-    localStorage.setItem('mental-avatar-realistic-chat', JSON.stringify(realisticMessages))
-  }, [realisticMessages])
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const todos = useTodos()
@@ -145,11 +122,8 @@ export default function App() {
         {view === 'ai'       && <AI todos={todos} notes={notes} calendar={calendar} settings={settings} onProviderChange={(p) => updateSettings({ aiProvider: p })} onNavigate={handleNavigate} />}
         {view === 'settings' && <Settings settings={settings} onSave={updateSettings} />}
         {view === 'history'   && <History />}
-        {view === 'knowledge' && <KnowledgeGraph settings={settings} />}
         {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
-        {view === 'avatar'    && <AvatarStudio />}
-        {view === 'avatar3d'  && <Avatar3DStudio settings={settings} messages={avatar3dMessages} setMessages={setAvatar3dMessages} />}
-        {view === 'realistic_avatar' && <RealisticAvatar settings={settings} messages={realisticMessages} setMessages={setRealisticMessages} />}
+        {view === 'mental_avatar' && <MentalAvatarFrame />}
       </main>
 
       {/* In-app toast */}
