@@ -23,6 +23,7 @@
     "@uiw/react-codemirror": "^4.23.7",
     "dompurify": "^3.4.7",
     "korean-lunar-calendar": "^0.3.6",
+    "mermaid": "^11.15.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
