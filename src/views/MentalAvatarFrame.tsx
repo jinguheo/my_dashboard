@@ -6,6 +6,7 @@ export default function MentalAvatarFrame() {
       src={MENTAL_AVATAR_URL}
       title="멘탈 아바타"
       className="w-full h-full border-0"
+      allow="microphone; camera; autoplay; clipboard-write"
     />
   )
 }
