@@ -204,6 +204,7 @@ export default function SettingsView({ settings, onSave }: Props) {
               label="계정+비밀번호로 로그인해서 API Key 가져오기"
             />
           </Section>
+          <AvatarPersonaSection />
           </>}
 
           {/* ── 데이터 ── */}
@@ -276,6 +277,7 @@ export default function SettingsView({ settings, onSave }: Props) {
             <p className="text-xs text-gray-500 leading-relaxed">JSON 파일의 설정을 현재 값에 병합합니다.</p>
             {importMessage && <p className="text-xs text-gray-600">{importMessage}</p>}
           </Section>
+          <BackupRestoreSection />
           </>}
 
           {/* ── 메일 ── */}
@@ -1152,6 +1154,379 @@ function LoginToGetKey({
         </div>
       )}
     </div>
+  )
+}
+
+const BACKUP_KEYS = [
+  'dash-settings',
+  'dash-notes',
+  'dash-todos',
+  'dash-journal-entries',
+  'dash-journal-analysis',
+  'dash-calendar',
+  'bookmarks',
+  'dashboard-layout',
+  'dash-panel-order',
+  'mental-avatar-3d-chat',
+]
+
+const AVATAR_API = 'http://127.0.0.1:8766'
+
+function AvatarPersonaSection() {
+  const [profile, setProfile] = useState<Record<string, string>>({})
+  const [options, setOptions] = useState<{
+    speech_style?: string[]
+    persona?: string[]
+    language_tone?: string[]
+    video?: Record<string, [string, string][]>
+  }>({})
+  const [defaults, setDefaults] = useState<Record<string, string>>({})
+  const [profileMsg, setProfileMsg] = useState('')
+  const [styleAnalyzing, setStyleAnalyzing] = useState(false)
+  const [styleResult, setStyleResult] = useState<{
+    ready: boolean
+    count?: number
+    message?: string
+    suggestion?: { speech_style?: string; persona?: string; language_tone?: string }
+    reason?: string
+  } | null>(null)
+  const [styleApplyMsg, setStyleApplyMsg] = useState('')
+
+  useEffect(() => {
+    fetch(`${AVATAR_API}/profile/me`).then(r => r.json()).then(d => {
+      const flat: Record<string, string> = {}
+      Object.entries(d.profile || {}).forEach(([k, v]: any) => { flat[k] = v.value || '' })
+      setProfile(flat)
+      setOptions(d.options || {})
+      setDefaults(d.defaults || {})
+    }).catch(() => {})
+  }, [])
+
+  const saveProfile = async () => {
+    try {
+      await fetch(`${AVATAR_API}/profile/me`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profile),
+      })
+      setProfileMsg('저장됐습니다')
+      setTimeout(() => setProfileMsg(''), 2000)
+    } catch { setProfileMsg('저장 실패') }
+  }
+
+  const setStyle = (key: string, val: string) =>
+    setProfile(p => ({ ...p, [key]: p[key] === val ? '' : val }))
+
+  // 기본값 옵션은 amber 링 + 점으로 표시 (선택된 옵션과 구분)
+  const isDefault = (key: string, val: string) => defaults[key] === val
+  const defaultRing = (key: string, val: string) =>
+    isDefault(key, val) && profile[key] !== val ? 'ring-2 ring-offset-1 ring-amber-300' : ''
+  const DefaultDot = ({ k, v }: { k: string; v: string }) =>
+    isDefault(k, v) ? <span className="ml-1 text-amber-400" title="기본값">●</span> : null
+
+  const analyzeStyle = async () => {
+    setStyleAnalyzing(true)
+    setStyleResult(null)
+    setStyleApplyMsg('')
+    try {
+      const res = await fetch(`${AVATAR_API}/conversation/style_analysis`)
+      setStyleResult(await res.json())
+    } catch {
+      setStyleResult({ ready: false, message: '분석 실패' })
+    } finally {
+      setStyleAnalyzing(false)
+    }
+  }
+
+  const applyStyleSuggestion = async () => {
+    if (!styleResult?.suggestion) return
+    try {
+      const res = await fetch(`${AVATAR_API}/conversation/style_apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(styleResult.suggestion),
+      })
+      const data = await res.json()
+      const flat: Record<string, string> = {}
+      Object.entries(data.profile || {}).forEach(([k, v]: any) => { flat[k] = v.value || '' })
+      setProfile(flat)
+      setStyleApplyMsg('적용됐습니다')
+      setTimeout(() => setStyleApplyMsg(''), 2000)
+    } catch {
+      setStyleApplyMsg('적용 실패')
+    }
+  }
+
+  const inputCls = "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-400 bg-white"
+  const labelCls = "text-xs font-medium text-gray-600"
+
+  return (
+    <>
+      <Section title="아바타 말투 & 성격" action={
+        <span className="text-xs text-gray-400 flex items-center gap-1">
+          <span className="text-amber-400">●</span> 기본값
+        </span>
+      }>
+        {/* 말투 */}
+        <div className="space-y-2">
+          <label className={labelCls}>말투 스타일</label>
+          <div className="flex flex-wrap gap-2">
+            {(options.speech_style || []).map(opt => (
+              <button key={opt} type="button" onClick={() => setStyle('speech_style', opt)}
+                className={`px-3 py-1.5 text-xs rounded-full border transition ${defaultRing('speech_style', opt)} ${
+                  profile.speech_style === opt
+                    ? 'bg-gray-900 text-white border-gray-900'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                }`}>{opt}<DefaultDot k="speech_style" v={opt} /></button>
+            ))}
+          </div>
+        </div>
+
+        {/* 성격 */}
+        <div className="space-y-2">
+          <label className={labelCls}>성격 / 페르소나</label>
+          <div className="flex flex-wrap gap-2">
+            {(options.persona || []).map(opt => (
+              <button key={opt} type="button" onClick={() => setStyle('persona', opt)}
+                className={`px-3 py-1.5 text-xs rounded-full border transition ${defaultRing('persona', opt)} ${
+                  profile.persona === opt
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                }`}>{opt}<DefaultDot k="persona" v={opt} /></button>
+            ))}
+          </div>
+        </div>
+
+        {/* 톤 */}
+        <div className="space-y-2">
+          <label className={labelCls}>언어 톤</label>
+          <div className="flex flex-wrap gap-2">
+            {(options.language_tone || []).map(opt => (
+              <button key={opt} type="button" onClick={() => setStyle('language_tone', opt)}
+                className={`px-3 py-1.5 text-xs rounded-full border transition ${defaultRing('language_tone', opt)} ${
+                  profile.language_tone === opt
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                }`}>{opt}<DefaultDot k="language_tone" v={opt} /></button>
+            ))}
+          </div>
+        </div>
+
+        {/* 이름/전문분야 */}
+        <div className="grid grid-cols-2 gap-3">
+          {[['name','이름'],['expertise','전문 분야'],['role','역할/직책'],['goals','현재 목표']].map(([k, label]) => (
+            <div key={k} className="space-y-1">
+              <label className={labelCls}>{label}</label>
+              <input value={profile[k] || ''} onChange={e => setProfile(p => ({...p, [k]: e.target.value}))}
+                className={inputCls} placeholder={label} />
+            </div>
+          ))}
+        </div>
+
+        {/* 영상 스타일 */}
+        <div className="space-y-3 pt-3 border-t border-gray-100">
+          <h4 className="text-xs font-semibold text-gray-700">영상 생성 스타일</h4>
+          {Object.entries(options.video || {}).map(([key, choices]) => (
+            <div key={key} className="space-y-1.5">
+              <label className={labelCls}>{{
+                video_still: '움직임 모드',
+                video_preprocess: '이미지 전처리',
+                video_enhancer: '얼굴 화질 향상',
+                video_size: '출력 해상도',
+                video_expression_scale: '표정 강도',
+              }[key] ?? key}</label>
+              <div className="flex flex-wrap gap-2">
+                {choices.map(([label, val]) => (
+                  <button key={val} type="button" onClick={() => setStyle(key, val)}
+                    className={`px-3 py-1.5 text-xs rounded-full border transition ${defaultRing(key, val)} ${
+                      profile[key] === val
+                        ? 'bg-orange-500 text-white border-orange-500'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                    }`}>{label}<DefaultDot k={key} v={val} /></button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button type="button" onClick={saveProfile}
+          className="w-full py-2 rounded-xl bg-gray-900 text-white text-sm hover:bg-gray-700 transition">
+          프로파일 저장
+        </button>
+        {profileMsg && <p className={`text-xs text-center ${profileMsg.includes('저장됐') ? 'text-green-600' : 'text-red-500'}`}>{profileMsg}</p>}
+      </Section>
+
+      <Section title="말투 학습">
+        <p className="text-xs text-gray-400">최근 대화에서 내 말투/성격/톤을 분석해 프로파일에 반영할 수 있습니다.</p>
+        <button type="button" onClick={analyzeStyle} disabled={styleAnalyzing}
+          className="w-full py-2 rounded-xl bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-40 transition">
+          {styleAnalyzing ? '분석 중…' : '최근 대화 분석하기'}
+        </button>
+
+        {styleResult && !styleResult.ready && (
+          <p className="text-xs text-gray-400">{styleResult.message}</p>
+        )}
+
+        {styleResult?.ready && styleResult.suggestion && (
+          <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs text-gray-600">
+            <p className="text-gray-400">최근 대화 {styleResult.count}개 분석 결과</p>
+            <ul className="space-y-1">
+              {styleResult.suggestion.speech_style && <li>말투: <span className="font-medium text-gray-900">{styleResult.suggestion.speech_style}</span></li>}
+              {styleResult.suggestion.persona && <li>성격: <span className="font-medium text-gray-900">{styleResult.suggestion.persona}</span></li>}
+              {styleResult.suggestion.language_tone && <li>톤: <span className="font-medium text-gray-900">{styleResult.suggestion.language_tone}</span></li>}
+            </ul>
+            {styleResult.reason && <p className="text-gray-400">{styleResult.reason}</p>}
+            <button type="button" onClick={applyStyleSuggestion}
+              className="w-full py-1.5 rounded-xl bg-indigo-600 text-white text-xs hover:bg-indigo-500 transition">
+              프로파일에 적용
+            </button>
+            {styleApplyMsg && <p className={`text-xs text-center ${styleApplyMsg.includes('적용됐') ? 'text-green-600' : 'text-red-500'}`}>{styleApplyMsg}</p>}
+          </div>
+        )}
+      </Section>
+    </>
+  )
+}
+
+function BackupRestoreSection() {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
+  const [msg, setMsg] = useState('')
+  const [restoreMsg, setRestoreMsg] = useState('')
+
+  async function handleExport() {
+    setStatus('loading')
+    setMsg('')
+    try {
+      const local: Record<string, unknown> = {}
+
+      // 고정 키
+      for (const key of BACKUP_KEYS) {
+        const raw = localStorage.getItem(key)
+        if (raw !== null) {
+          try { local[key] = JSON.parse(raw) } catch { local[key] = raw }
+        }
+      }
+
+      // dash-dailylog-YYYY-MM-DD 패턴 키 전부
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!
+        if (k.startsWith('dash-dailylog-')) {
+          const raw = localStorage.getItem(k)
+          if (raw !== null) {
+            try { local[k] = JSON.parse(raw) } catch { local[k] = raw }
+          }
+        }
+      }
+
+      // KG 서버 데이터 (선택적)
+      let kg: unknown = null
+      const endpoint = 'http://127.0.0.1:8766'
+      try {
+        const r = await fetch(`${endpoint}/backup`, { signal: AbortSignal.timeout(3000) })
+        if (r.ok) kg = await r.json()
+      } catch { /* 서버 없으면 건너뜀 */ }
+
+      const payload = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        localStorage: local,
+        kg,
+      }
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dashboard-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+
+      setStatus('ok')
+      setMsg(`백업 완료 — localStorage ${Object.keys(local).length}개 키${kg ? ' + KG 데이터' : ''}`)
+    } catch (e: any) {
+      setStatus('error')
+      setMsg(e.message || '백업 실패')
+    }
+  }
+
+  async function handleRestore(file: File | undefined) {
+    if (!file) return
+    setRestoreMsg('')
+    try {
+      const payload = JSON.parse(await file.text())
+      const local: Record<string, unknown> = payload.localStorage || {}
+
+      const keys = Object.keys(local)
+      for (const key of keys) {
+        localStorage.setItem(key, typeof local[key] === 'string' ? local[key] as string : JSON.stringify(local[key]))
+      }
+
+      // KG 복원 (서버가 /restore 엔드포인트 지원 시)
+      if (payload.kg) {
+        try {
+          await fetch('http://127.0.0.1:8766/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload.kg),
+            signal: AbortSignal.timeout(5000),
+          })
+        } catch { /* KG 서버 없으면 무시 */ }
+      }
+
+      setRestoreMsg(`복원 완료 — ${keys.length}개 키 복원됨. 페이지를 새로고침하세요.`)
+    } catch {
+      setRestoreMsg('복원 실패: 올바른 백업 JSON 파일인지 확인하세요.')
+    }
+  }
+
+  return (
+    <section className="bg-white border border-surface-border rounded-xl p-5 space-y-4">
+      <h2 className="text-sm font-semibold text-gray-900">전체 백업 / 복원</h2>
+      <p className="text-xs text-gray-500 leading-relaxed">
+        노트, 할 일, 일지, 캘린더, 북마크, 대시보드 레이아웃, 설정, KG 데이터를 하나의 JSON 파일로 내보내거나 복원합니다.
+      </p>
+
+      {/* 내보내기 */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleExport}
+          disabled={status === 'loading'}
+          className="px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white text-xs font-semibold rounded-xl disabled:opacity-40 transition-colors"
+        >
+          {status === 'loading' ? '내보내는 중...' : '백업 내보내기 (JSON)'}
+        </button>
+        {status === 'ok' && <span className="text-xs text-green-600">{msg}</span>}
+        {status === 'error' && <span className="text-xs text-red-500">{msg}</span>}
+      </div>
+
+      {/* 복원 */}
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-gray-700">백업에서 복원</p>
+        <label className="block">
+          <input
+            type="file"
+            accept="application/json,.json"
+            onChange={e => handleRestore(e.target.files?.[0])}
+            className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200"
+          />
+        </label>
+        {restoreMsg && (
+          <p className={`text-xs ${restoreMsg.includes('실패') ? 'text-red-500' : 'text-green-600'}`}>
+            {restoreMsg}
+          </p>
+        )}
+        {restoreMsg && !restoreMsg.includes('실패') && (
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg"
+          >
+            지금 새로고침
+          </button>
+        )}
+      </div>
+    </section>
   )
 }
 

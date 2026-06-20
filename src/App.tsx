@@ -12,6 +12,7 @@ import History from '@/views/History'
 import KnowledgeGraph from '@/views/KnowledgeGraph'
 import AvatarStudio from '@/views/AvatarStudio'
 import Avatar3DStudio, { type ChatMsg } from '@/views/Avatar3DStudio'
+import RealisticAvatar from '@/views/RealisticAvatar'
 import Journal from '@/views/Journal'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
@@ -41,6 +42,16 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('mental-avatar-3d-chat', JSON.stringify(avatar3dMessages))
   }, [avatar3dMessages])
+  const [realisticMessages, setRealisticMessages] = useState<ChatMsg[]>(() => {
+    try {
+      const raw = localStorage.getItem('mental-avatar-realistic-chat')
+      if (raw) return JSON.parse(raw)
+    } catch { /* ignore */ }
+    return []
+  })
+  useEffect(() => {
+    localStorage.setItem('mental-avatar-realistic-chat', JSON.stringify(realisticMessages))
+  }, [realisticMessages])
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const todos = useTodos()
@@ -138,6 +149,7 @@ export default function App() {
         {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
         {view === 'avatar'    && <AvatarStudio />}
         {view === 'avatar3d'  && <Avatar3DStudio settings={settings} messages={avatar3dMessages} setMessages={setAvatar3dMessages} />}
+        {view === 'realistic_avatar' && <RealisticAvatar settings={settings} messages={realisticMessages} setMessages={setRealisticMessages} />}
       </main>
 
       {/* In-app toast */}

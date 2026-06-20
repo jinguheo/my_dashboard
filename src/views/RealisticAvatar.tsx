@@ -1,0 +1,735 @@
+/**
+ * RealisticAvatar — Avaturn GLB 3D 뷰어 + Avatar3DStudio와 동일한 채팅/TTS/STT 패널
+ */
+import { useEffect, useRef, useState, useCallback, type Dispatch, type SetStateAction } from 'react'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { streamClaudeWeb, claudeWebAutoConnect } from '@/services/claudeWeb'
+import { streamChatOpenAI } from '@/services/openai'
+import { streamChat } from '@/services/claude'
+import type { Settings } from '@/types'
+import type { ChatMsg } from './Avatar3DStudio'
+
+const API = 'http://127.0.0.1:8766'
+const OLLAMA_ENDPOINT = 'http://localhost:11434/v1'
+const OLLAMA_MODEL = 'gemma4:e2b'
+const AVATAR_FILE_KEY = 'mental-avatar-avaturn-filename'
+const IDB_NAME = 'mental-avatar-glb'
+const IDB_STORE = 'glb-files'
+
+interface GlbEntry { name: string; size: number; data: ArrayBuffer; loadedAt: number }
+
+function openIDB(): Promise<IDBDatabase> {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE, { keyPath: 'name' })
+    req.onsuccess = () => res(req.result)
+    req.onerror = () => rej(req.error)
+  })
+}
+async function idbSave(entry: GlbEntry) {
+  const db = await openIDB()
+  return new Promise<void>((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    tx.objectStore(IDB_STORE).put(entry)
+    tx.oncomplete = () => res()
+    tx.onerror = () => rej(tx.error)
+  })
+}
+async function idbList(): Promise<GlbEntry[]> {
+  const db = await openIDB()
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readonly')
+    const req = tx.objectStore(IDB_STORE).getAll()
+    req.onsuccess = () => res((req.result as GlbEntry[]).sort((a, b) => b.loadedAt - a.loadedAt))
+    req.onerror = () => rej(req.error)
+  })
+}
+async function idbDelete(name: string) {
+  const db = await openIDB()
+  return new Promise<void>((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    tx.objectStore(IDB_STORE).delete(name)
+    tx.oncomplete = () => res()
+    tx.onerror = () => rej(tx.error)
+  })
+}
+
+const GREETING = '안녕하세요! 반갑습니다. 무엇이든 도와드리겠습니다.'
+const SYSTEM = `당신은 사용자를 맞이하는 AI 아바타입니다.
+따뜻하고 전문적으로 한국어로 응대하세요.
+답변은 2~3문장으로 간결하게 하고, 항상 친절한 어조를 유지하세요.`
+
+interface VoiceOption { id: string; label: string; kind: 'clone' | 'template' | 'system'; voiceURI?: string }
+const MY_VOICE: VoiceOption = { id: 'mine', label: '내 목소리', kind: 'clone' }
+const TEMPLATE_VOICES: VoiceOption[] = [
+  { id: 'pretty', label: '예쁜 목소리', kind: 'template' },
+  { id: 'child',  label: '어린이 목소리', kind: 'template' },
+  { id: 'calm',   label: '차분한 목소리', kind: 'template' },
+]
+const VOICE_OPTION_KEY = 'mental-avatar-realistic-voice'
+
+interface Props {
+  settings: Settings
+  messages: ChatMsg[]
+  setMessages: Dispatch<SetStateAction<ChatMsg[]>>
+}
+
+export default function RealisticAvatar({ settings, messages, setMessages }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null)
+  const clockRef = useRef(new THREE.Clock())
+  const animFrameRef = useRef<number>(0)
+  const objectUrlRef = useRef<string | null>(null)
+
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [avatarLoaded, setAvatarLoaded] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [fileName, setFileName] = useState(() => localStorage.getItem(AVATAR_FILE_KEY) || '')
+  const [serverOnline, setServerOnline] = useState(true)
+  const [glbList, setGlbList] = useState<GlbEntry[]>([])
+  const [showList, setShowList] = useState(false)
+
+  const refreshList = useCallback(() => {
+    idbList().then(setGlbList).catch(() => {})
+  }, [])
+
+  useEffect(() => { refreshList() }, [refreshList])
+
+  // 마운트 시 마지막 GLB 자동 로드
+  useEffect(() => {
+    const lastName = localStorage.getItem(AVATAR_FILE_KEY)
+    if (!lastName) return
+    idbList().then(list => {
+      const entry = list.find(e => e.name === lastName) || list[0]
+      if (entry) {
+        const blob = new Blob([entry.data], { type: 'model/gltf-binary' })
+        const url = URL.createObjectURL(blob)
+        objectUrlRef.current = url
+        setFileName(entry.name)
+        loadGLB(url)
+      }
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const checkServer = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/stats`, { signal: AbortSignal.timeout(2000) })
+      setServerOnline(res.ok)
+      return res.ok
+    } catch {
+      setServerOnline(false)
+      return false
+    }
+  }, [])
+
+  useEffect(() => { checkServer() }, [])
+
+  // 음성 옵션
+  const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([])
+  useEffect(() => {
+    const load = () => {
+      const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko') || v.lang.startsWith('en'))
+      if (voices.length) setSystemVoices(voices.slice(0, 6))
+    }
+    load()
+    speechSynthesis.onvoiceschanged = load
+    return () => { speechSynthesis.onvoiceschanged = null }
+  }, [])
+  const voiceOptions: VoiceOption[] = [MY_VOICE, ...TEMPLATE_VOICES,
+    ...systemVoices.map(v => ({ id: `sys:${v.voiceURI}`, label: v.name, kind: 'system' as const, voiceURI: v.voiceURI })),
+  ]
+  const [voiceOptionId, setVoiceOptionId] = useState(() => localStorage.getItem(VOICE_OPTION_KEY) || MY_VOICE.id)
+  const selectedVoice = voiceOptions.find(v => v.id === voiceOptionId) || MY_VOICE
+
+  // 채팅
+  const [input, setInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
+  const [ttsDebug, setTtsDebug] = useState('')
+  const speakingRef = useRef(false)
+  const sttBusyRef = useRef(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const sendMessageRef = useRef<(t?: string) => void>(() => {})
+
+  // STT
+  const [recording, setRecording] = useState(false)
+  const [vadActive, setVadActive] = useState(false)
+  const [sttBusy, setSttBusy] = useState(false)
+  const [sttResult, setSttResult] = useState<{ text: string; language?: string } | null>(null)
+  const [sttError, setSttError] = useState('')
+  const sttStreamRef = useRef<MediaStream | null>(null)
+  const sttCtxRef = useRef<AudioContext | null>(null)
+  const sttRecRef = useRef<MediaRecorder | null>(null)
+  const sttChunksRef = useRef<Blob[]>([])
+  const sttSilenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sttListeningRef = useRef(false)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const ttsSeqRef = useRef(0)
+
+  // 공유 AudioContext 확보 (제스처에서 unlock, 닫지 않고 재사용)
+  const getCtx = useCallback(() => {
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+      audioCtxRef.current = new AudioContext()
+    }
+    return audioCtxRef.current
+  }, [])
+
+  // AudioContext unlock — Edge는 제스처 전에 만든 ctx가 영구 suspended로 고정됨.
+  // 첫 제스처에서 ctx를 새로(제스처 안에서) 만들어 보장된 컨텍스트를 확보한다.
+  const unlockedRef = useRef(false)
+  useEffect(() => {
+    const unlock = () => {
+      if (unlockedRef.current) return
+      unlockedRef.current = true
+      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        try { audioCtxRef.current.close() } catch { /**/ }
+      }
+      audioCtxRef.current = new AudioContext()  // 제스처 안에서 생성 → running 가능
+      audioCtxRef.current.resume().catch(() => {})
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock) }
+  }, [])
+
+  // ── TTS ──
+  const playTTS = useCallback(async (text: string) => {
+    // 이 호출의 고유 번호 — 이후 비동기 단계에서 최신 호출인지 확인
+    const myseq = ++ttsSeqRef.current
+    // 이전 재생만 중단 — 진행 중인 fetch는 abort하지 않는다.
+    // (Werkzeug 개발서버는 abort된 POST 본문을 read(10MB)로 비우려다 MemoryError로 죽음)
+    // 늦게 도착한 응답은 stale() 체크로 재생을 폐기하므로 abort 없이도 음성 겹침이 없다.
+    if (ttsSourceRef.current) { try { ttsSourceRef.current.onended = null; ttsSourceRef.current.stop() } catch { /**/ }; ttsSourceRef.current = null }
+    try { speechSynthesis.cancel() } catch { /**/ }
+    setSpeaking(true); speakingRef.current = true
+    let finished = false
+    const done = () => {
+      if (finished) return; finished = true
+      clearTimeout(failsafe)
+      // 내가 최신 호출일 때만 speaking 해제 (이미 다음 TTS가 시작됐으면 건드리지 않음)
+      if (ttsSeqRef.current === myseq) { setSpeaking(false); speakingRef.current = false }
+    }
+    const failsafe = setTimeout(() => done(), 2000 + text.length * 200)
+    const stale = () => ttsSeqRef.current !== myseq
+    if (selectedVoice.kind === 'system') {
+      const u = new SpeechSynthesisUtterance(text)
+      const matched = systemVoices.find(v => v.voiceURI === selectedVoice.voiceURI)
+      if (matched) u.voice = matched
+      u.lang = matched?.lang || 'ko-KR'; u.rate = 0.95
+      u.onend = done; u.onerror = done
+      speechSynthesis.speak(u); return
+    }
+    try {
+      const form = new FormData(); form.append('text', text)
+      form.append('voice', selectedVoice.kind === 'template' ? selectedVoice.id : 'mine')
+      const res = await fetch(`${API}/avatar/tts_only`, { method: 'POST', body: form })
+      if (stale()) return                       // 더 새로운 호출이 시작됨 → 폐기
+      if (!res.ok) throw new Error()
+      const arrayBuf = await res.arrayBuffer()
+      if (stale()) return
+      const ctx = getCtx()
+      if (ctx.state === 'suspended') { try { await ctx.resume() } catch { /**/ } }
+      const audioBuf = await ctx.decodeAudioData(arrayBuf)
+      if (stale()) return                       // decode 끝났는데 이미 구버전 → 재생 안 함
+      const source = ctx.createBufferSource()
+      source.buffer = audioBuf
+      source.connect(ctx.destination)
+      clearTimeout(failsafe)
+      const fs2 = setTimeout(() => done(), (audioBuf.duration + 1) * 1000)
+      source.onended = () => { clearTimeout(fs2); done() }
+      ttsSourceRef.current = source
+      source.start()
+    } catch {
+      if (stale()) { done(); return }  // 더 새로운 호출로 교체됨 — 폴백 금지
+      const u = new SpeechSynthesisUtterance(text)
+      u.lang = 'ko-KR'; u.rate = 0.95; u.onend = done; u.onerror = done
+      try { speechSynthesis.cancel() } catch { /**/ }
+      speechSynthesis.speak(u)
+    }
+  }, [selectedVoice, systemVoices, getCtx])
+
+  // ── STT ──
+  const THRESHOLD = 20
+  const SILENCE_MS = 1200
+
+  const transcribeChunk = useCallback(async (chunks: Blob[]) => {
+    if (!chunks.length) return
+    const blob = new Blob(chunks, { type: 'audio/webm' })
+    if (!blob.size) return
+    setSttBusy(true); sttBusyRef.current = true
+    try {
+      const form = new FormData(); form.append('audio', blob, 'stt.webm')
+      const res = await fetch(`${API}/stt/transcribe`, { method: 'POST', body: form, signal: AbortSignal.timeout(20000) })
+      const data = await res.json()
+      if (data.error) { setSttError(data.error) }
+      else {
+        const text = (data.text || '').trim()
+        setSttResult({ text, language: data.language })
+        if (text) sendMessageRef.current(text)
+      }
+    } catch { setSttError('인식 요청 실패') }
+    finally { setSttBusy(false); sttBusyRef.current = false }
+  }, [])
+
+  const stopStt = useCallback(() => {
+    sttListeningRef.current = false
+    if (sttSilenceTimer.current) { clearTimeout(sttSilenceTimer.current); sttSilenceTimer.current = null }
+    sttRecRef.current?.stop(); sttRecRef.current = null
+    sttCtxRef.current?.close(); sttCtxRef.current = null
+    sttStreamRef.current?.getTracks().forEach(t => t.stop()); sttStreamRef.current = null
+    setRecording(false); setVadActive(false)
+  }, [])
+
+  const startStt = useCallback(async () => {
+    if (recording) { stopStt(); return }
+    setSttError(''); setSttResult(null); sttBusyRef.current = false
+    let stream: MediaStream
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) }
+    catch (e) { setSttError('마이크 접근 실패: ' + (e instanceof Error ? e.message : String(e))); return }
+    sttStreamRef.current = stream; sttListeningRef.current = true; setRecording(true)
+    const ctx = new AudioContext(); sttCtxRef.current = ctx
+    const src = ctx.createMediaStreamSource(stream)
+    const analyser = ctx.createAnalyser(); analyser.fftSize = 512; src.connect(analyser)
+    const buf = new Uint8Array(analyser.frequencyBinCount)
+    let isRecording = false
+    const tick = () => {
+      if (!sttListeningRef.current) return
+      if (speakingRef.current || sttBusyRef.current) { if (!isRecording) { requestAnimationFrame(tick); return } }
+      analyser.getByteFrequencyData(buf)
+      const avg = buf.reduce((a, b) => a + b, 0) / buf.length
+      if (avg > THRESHOLD) {
+        setVadActive(true)
+        if (sttSilenceTimer.current) { clearTimeout(sttSilenceTimer.current); sttSilenceTimer.current = null }
+        if (!isRecording) {
+          isRecording = true; sttChunksRef.current = []
+          const rec = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+          rec.ondataavailable = e => { if (e.data.size > 0) sttChunksRef.current.push(e.data) }
+          rec.onstop = () => { isRecording = false; setVadActive(false); transcribeChunk([...sttChunksRef.current]) }
+          rec.start(); sttRecRef.current = rec
+        }
+        sttSilenceTimer.current = setTimeout(() => {
+          sttRecRef.current?.stop(); sttRecRef.current = null; setVadActive(false)
+        }, SILENCE_MS)
+      }
+      requestAnimationFrame(tick)
+    }
+    tick()
+  }, [recording, stopStt, transcribeChunk])
+
+  // 진입 시 자동 듣기 모드
+  useEffect(() => {
+    startStt()
+    return () => stopStt()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── GLB 로더 ──
+  const loadGLB = useCallback((url: string) => {
+    const container = containerRef.current
+    if (!container) return
+    setLoading(true); setError(''); setAvatarLoaded(false)
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+    if (rendererRef.current) { rendererRef.current.dispose(); container.innerHTML = '' }
+
+    const rect = container.getBoundingClientRect()
+    const w = rect.width || container.offsetWidth || 800
+    const h = rect.height || container.offsetHeight || 600
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(w, h); renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true
+    container.appendChild(renderer.domElement); rendererRef.current = renderer
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0d1b2a)
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2))
+    const dir = new THREE.DirectionalLight(0xffffff, 2); dir.position.set(1, 3, 2); scene.add(dir)
+    const fill = new THREE.DirectionalLight(0x8899cc, 0.6); fill.position.set(-2, 1, -1); scene.add(fill)
+
+    const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100)
+    camera.position.set(0, 1.6, 2.5)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.target.set(0, 1.0, 0); controls.enableDamping = true; controls.dampingFactor = 0.05
+    controls.minDistance = 0.5; controls.maxDistance = 5; controls.update()
+
+    // fetch → parseAsync 방식: 콜백이 묵살되는 문제 우회
+    ;(async () => {
+      try {
+        console.log('[GLB] fetch 시작', url)
+        const buf = await fetch(url).then(r => {
+          if (!r.ok) throw new Error(`파일 읽기 실패: ${r.status}`)
+          return r.arrayBuffer()
+        })
+        console.log('[GLB] fetch 완료, 크기:', buf.byteLength, '→ parseAsync 시작')
+        const gltf = await new GLTFLoader().parseAsync(buf, url)
+        console.log('[GLB] parseAsync 완료')
+        const box = new THREE.Box3().setFromObject(gltf.scene)
+        const size = box.getSize(new THREE.Vector3())
+        const center = box.getCenter(new THREE.Vector3())
+        const scale = 1.8 / size.y
+        gltf.scene.scale.setScalar(scale)
+        gltf.scene.position.sub(center.multiplyScalar(scale))
+        gltf.scene.position.y += size.y * scale * 0.5 - 0.1
+        scene.add(gltf.scene)
+        if (gltf.animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(gltf.scene); mixerRef.current = mixer
+          const idle = gltf.animations.find(a => /idle|stand|wait/i.test(a.name)) ?? gltf.animations[0]
+          mixer.clipAction(idle).play()
+        }
+        setLoading(false); setAvatarLoaded(true)
+        const animate = () => {
+          animFrameRef.current = requestAnimationFrame(animate)
+          mixerRef.current?.update(clockRef.current.getDelta())
+          controls.update(); renderer.render(scene, camera)
+        }
+        animate()
+        const onResize = () => {
+          const w2 = container.clientWidth, h2 = container.clientHeight
+          camera.aspect = w2 / h2; camera.updateProjectionMatrix(); renderer.setSize(w2, h2)
+        }
+        window.addEventListener('resize', onResize)
+      } catch (err: any) {
+        console.error('[GLB] 로딩 에러:', err)
+        setError(err?.message || 'GLB 로딩 실패')
+        setLoading(false)
+      }
+    })()
+  }, [])
+
+  const handleFile = useCallback((file: File) => {
+    if (!file.name.toLowerCase().endsWith('.glb')) { setError('GLB 파일만 지원합니다'); return }
+    file.arrayBuffer().then(data => {
+      idbSave({ name: file.name, size: file.size, data, loadedAt: Date.now() })
+        .then(refreshList).catch(() => {})
+    })
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    const url = URL.createObjectURL(file); objectUrlRef.current = url
+    localStorage.setItem(AVATAR_FILE_KEY, file.name); setFileName(file.name)
+    setShowList(false)
+    loadGLB(url)
+  }, [loadGLB, refreshList])
+
+  const loadFromIDB = useCallback((entry: GlbEntry) => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    const blob = new Blob([entry.data], { type: 'model/gltf-binary' })
+    const url = URL.createObjectURL(blob); objectUrlRef.current = url
+    localStorage.setItem(AVATAR_FILE_KEY, entry.name); setFileName(entry.name)
+    setShowList(false)
+    idbSave({ ...entry, loadedAt: Date.now() }).then(refreshList).catch(() => {})
+    loadGLB(url)
+  }, [loadGLB, refreshList])
+
+  useEffect(() => () => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+    rendererRef.current?.dispose()
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+  }, [])
+
+  // ── 채팅 ──
+  const buildSystemPrompt = useCallback(async (userText: string): Promise<string> => {
+    try {
+      const res = await fetch(`${API}/avatar/context?q=${encodeURIComponent(userText)}`)
+      const data = await res.json()
+      if (data?.system) return data.system
+    } catch { /**/ }
+    return SYSTEM
+  }, [])
+
+  const logTurn = useCallback((role: 'user' | 'assistant', content: string) => {
+    if (!content.trim()) return
+    fetch(`${API}/conversation/log`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ view: 'realistic_avatar', role, content }),
+    }).catch(() => {})
+  }, [])
+
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim()
+    if (!text || chatLoading) return
+    const userMsg: ChatMsg = { role: 'user', content: text }
+    setMessages(prev => [...prev, userMsg]); setInput(''); setChatLoading(true)
+    logTurn('user', text)
+    try {
+      const history = [...messages, userMsg].slice(-8)
+      const system = await buildSystemPrompt(text)
+      let reply = ''
+      const provider = settings.aiProvider || 'claude-web'
+
+      if (provider === 'claude-web') {
+        let key = settings.claudeSessionKey
+        if (!key && settings.mcpEndpoint) key = await claudeWebAutoConnect(settings.mcpEndpoint) || ''
+        await streamClaudeWeb(key, settings.mcpEndpoint, history, system, d => { reply += d })
+      } else if (provider === 'claude') {
+        await streamChat(settings.anthropicApiKey, history, system, d => { reply += d })
+      } else if (provider === 'chatgpt') {
+        await streamChatOpenAI(settings.openaiApiKey, 'https://api.openai.com/v1', 'gpt-4o', history, system, d => { reply += d })
+      } else if (provider === 'custom') {
+        await streamChatOpenAI('', settings.customAiEndpoint, settings.customAiModel || 'gpt-4o', history, system, d => { reply += d })
+      } else {
+        await streamChatOpenAI('', OLLAMA_ENDPOINT, OLLAMA_MODEL, history, system, d => { reply += d })
+      }
+
+      // <think>...</think> 블록 제거 (gemma4/deepseek thinking 모델)
+      const stripped = reply.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+      const displayText = stripped || reply
+      setMessages(prev => [...prev, { role: 'assistant', content: displayText }])
+      if (displayText) {
+        logTurn('assistant', displayText)
+        // 마크다운/기호 + 괄호 안 내용 제거 후 첫 문장만 추출
+        const clean = displayText
+          .replace(/[（(][^（()）]*[）)]/g, ' ')  // (괄호) 안 내용 제거
+          .replace(/[#*_`>~\-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        // 문장 끝(. ! ? 。 …) 또는 줄바꿈 기준 첫 문장
+        const m = clean.match(/^.*?[.!?。…！？]/)
+        const firstSentence = (m ? m[0] : clean).trim()
+        // 첫 문장 외에 더 남은 내용이 있으면 안내 문구 추가
+        const hasMore = clean.length > firstSentence.length + 1
+        const ttsText = hasMore
+          ? firstSentence + ' 자세한 내용은 채팅 화면에 있어요.'
+          : firstSentence
+        playTTS(ttsText)
+      }
+    } catch (e: any) {
+      const errMsg = e?.message || '일시적인 오류가 발생했습니다.'
+      setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${errMsg}` }])
+      console.error('[chat]', e)
+    } finally { setChatLoading(false) }
+  }, [input, chatLoading, messages, settings, buildSystemPrompt, logTurn, playTTS, setMessages])
+
+  useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  // 첫 진입 시 인사
+  useEffect(() => {
+    if (messages.length > 0) return
+    const t = setTimeout(() => {
+      setMessages([{ role: 'assistant', content: GREETING }])
+      playTTS(GREETING)
+    }, 800)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const aiProvider = settings.aiProvider || 'claude-web'
+  const isConnected = aiProvider === 'ollama' || !!(settings.anthropicApiKey || settings.claudeSessionKey || settings.openaiApiKey || settings.customAiEndpoint)
+
+  return (
+    <div className="flex h-full overflow-hidden bg-gray-950">
+      {/* 3D 뷰어 */}
+      <div
+        className={`flex-1 relative ${dragging ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+      >
+        <div ref={containerRef} className="w-full h-full" />
+
+        {/* 파일 선택 + 목록 (좌상단) */}
+        <div className="absolute top-3 left-3 z-20 flex flex-col gap-1">
+          <div className="flex gap-1">
+            <label className="flex items-center gap-2 bg-black/50 backdrop-blur text-xs text-gray-300 hover:text-white rounded-lg px-3 py-1.5 cursor-pointer border border-gray-700 hover:border-gray-500 transition-colors">
+              📁 {fileName || 'GLB 파일 선택'}
+              <input type="file" accept=".glb" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            </label>
+            {glbList.length > 0 && (
+              <button
+                onClick={() => setShowList(v => !v)}
+                className="bg-black/50 backdrop-blur text-xs text-gray-300 hover:text-white rounded-lg px-2 py-1.5 border border-gray-700 hover:border-gray-500 transition-colors"
+                title="저장된 아바타 목록"
+              >
+                {showList ? '▲' : '▼'} {glbList.length}
+              </button>
+            )}
+          </div>
+          {showList && (
+            <div className="bg-black/80 backdrop-blur border border-gray-700 rounded-xl overflow-hidden min-w-[220px] max-h-64 overflow-y-auto">
+              {glbList.map(entry => (
+                <div key={entry.name} className="flex items-center gap-1 px-2 py-1.5 hover:bg-gray-800/80 group">
+                  <button
+                    onClick={() => loadFromIDB(entry)}
+                    className="flex-1 text-left text-xs text-gray-300 hover:text-white truncate"
+                  >
+                    {entry.name === fileName ? '▶ ' : ''}{entry.name}
+                    <span className="ml-1 text-[10px] text-gray-500">{(entry.size / 1024 / 1024).toFixed(1)}MB</span>
+                  </button>
+                  <button
+                    onClick={() => idbDelete(entry.name).then(refreshList)}
+                    className="text-[10px] text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity px-1"
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 목소리 선택 (우상단) */}
+        <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-1 bg-black/40 backdrop-blur rounded-xl p-2">
+          <span className="text-[10px] text-gray-400 px-1">목소리</span>
+          <div className="flex flex-wrap justify-end gap-1 max-w-[12rem]">
+            {voiceOptions.map(v => (
+              <button key={v.id} onClick={() => { setVoiceOptionId(v.id); localStorage.setItem(VOICE_OPTION_KEY, v.id) }}
+                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${voiceOptionId === v.id ? 'bg-purple-600 border-purple-400 text-white' : 'bg-gray-800/70 border-gray-600 text-gray-300 hover:bg-gray-700'}`}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 안내 / 로딩 / 에러 */}
+        {!avatarLoaded && !loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 gap-2 pointer-events-none">
+            <p className="text-sm">GLB 파일을 드래그하거나 좌상단에서 선택하세요</p>
+          </div>
+        )}
+        {loading && <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm pointer-events-none">아바타 로딩 중...</div>}
+        {dragging && <div className="absolute inset-0 flex items-center justify-center bg-blue-900/30 text-blue-300 text-lg font-semibold pointer-events-none">GLB 파일을 놓으세요</div>}
+
+        {speaking && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-black/50 backdrop-blur px-4 py-2 rounded-full">
+            <div className="flex gap-1 items-end">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="w-1 bg-blue-400 rounded-full animate-bounce" style={{ height: `${8 + Math.sin(i * 1.2) * 7}px`, animationDelay: `${i * 0.1}s` }} />
+              ))}
+            </div>
+            <span className="text-xs text-blue-300">말하는 중</span>
+          </div>
+        )}
+        {error && <div className="absolute bottom-4 left-4 right-4 bg-red-900/80 text-red-200 text-xs p-2 rounded">{error}</div>}
+      </div>
+
+      {/* 채팅 패널 — Avatar3DChat과 동일 구조 */}
+      <div className="w-80 flex flex-col border-l border-gray-800 bg-gray-900/95">
+        <div className="px-4 py-3 border-b border-gray-800 bg-gray-900">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+              <h2 className="text-sm font-semibold text-gray-200">실사 아바타</h2>
+            </div>
+            <button onClick={() => setMessages([])}
+              className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 rounded px-2 py-0.5 hover:bg-gray-800">
+              새로 시작
+            </button>
+          </div>
+          <div className="flex items-center justify-between mt-0.5">
+            <p className="text-xs text-gray-500">
+              {isConnected ? '응답 시 자동으로 음성 재생' : '설정에서 API Key를 입력해주세요'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={async () => {
+                try { await fetch('http://127.0.0.1:8765/restart', { method: 'POST' }) } catch { /**/ }
+              }} className="text-[10px] text-yellow-400 hover:text-yellow-300 border border-yellow-700 rounded px-1.5 py-0.5 hover:bg-yellow-900/30">
+                MCP 재시작
+              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={async () => {
+                  // 실제 TTS 파이프라인 그대로 테스트 — 단계별 결과를 화면에 표시
+                  try {
+                    const ctx = getCtx()
+                    setTtsDebug(`ctx=${ctx.state} → resume…`)
+                    if (ctx.state === 'suspended') await ctx.resume()
+                    setTtsDebug(`ctx=${ctx.state} → fetch…`)
+                    const form = new FormData()
+                    form.append('text', '소리 테스트입니다 잘 들리나요')
+                    form.append('voice', selectedVoice.kind === 'template' ? selectedVoice.id : 'mine')
+                    const res = await fetch(`${API}/avatar/tts_only`, { method: 'POST', body: form })
+                    setTtsDebug(`fetch ${res.status} → decode…`)
+                    const arr = await res.arrayBuffer()
+                    const buf = await ctx.decodeAudioData(arr)
+                    setTtsDebug(`decode OK ${buf.duration.toFixed(1)}s, ctx=${ctx.state} → play`)
+                    const s = ctx.createBufferSource()
+                    s.buffer = buf; s.connect(ctx.destination)
+                    s.onended = () => setTtsDebug(`재생끝 (ctx=${ctx.state}) 들렸나요?`)
+                    s.start()
+                  } catch (err: any) {
+                    setTtsDebug(`ERR: ${err?.name || ''} ${err?.message || err}`)
+                  }
+                }} className="text-[10px] text-purple-400 hover:text-purple-300 border border-purple-700 rounded px-1.5 py-0.5">
+                  🔊 음성테스트
+                </button>
+                <div className={`w-1.5 h-1.5 rounded-full ${serverOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-[10px] text-gray-500">{serverOnline ? 'API' : 'API 꺼짐'}</span>
+                {!serverOnline && (
+                  <button onClick={checkServer}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 underline ml-1">
+                    재연결
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          {ttsDebug && (
+            <div className="px-3 pb-1 text-[10px] font-mono text-amber-400 break-all">🛠 {ttsDebug}</div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {m.role === 'assistant' && (
+                <div className="w-6 h-6 rounded-full bg-blue-700 flex items-center justify-center text-xs mr-2 shrink-0 mt-0.5">🤖</div>
+              )}
+              <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${m.role === 'user' ? 'bg-blue-700 text-white rounded-tr-sm' : 'bg-gray-800 text-gray-200 rounded-tl-sm'}`}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {chatLoading && (
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-blue-700 flex items-center justify-center text-xs shrink-0">🤖</div>
+              <div className="bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 flex gap-1">
+                {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+              </div>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        <div className="p-3 border-t border-gray-800 space-y-2">
+          {(recording || sttBusy || sttResult || sttError) && (
+            <div className="bg-gray-800/80 border border-gray-700 rounded-xl px-3 py-2 text-xs space-y-1">
+              {recording && !sttBusy && (
+                <p className={vadActive ? 'text-green-400' : 'text-gray-400'}>
+                  {vadActive ? '🎙 듣는 중…' : '👂 대기 중… 말씀해보세요'}
+                </p>
+              )}
+              {sttBusy && <p className="text-gray-400">⏳ 인식 처리 중…</p>}
+              {sttResult && !sttBusy && (
+                <p className="text-gray-300">
+                  <span className="text-gray-500">인식: </span>
+                  <span className="text-gray-100 font-medium">{sttResult.text || '(인식된 텍스트 없음)'}</span>
+                </p>
+              )}
+              {sttError && <p className="text-red-400">{sttError}</p>}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={startStt}
+              title={recording ? '듣기 모드 끄기' : '듣기 모드 켜기'}
+              className={`px-3 py-2 text-sm rounded-xl transition ${recording ? (vadActive ? 'bg-green-600 hover:bg-green-500 text-white animate-pulse' : 'bg-red-600 hover:bg-red-500 text-white') : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700'}`}>
+              {recording ? (vadActive ? '🎙' : '👂') : '🎤'}
+            </button>
+            <input value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              placeholder="무엇이든 물어보세요…"
+              disabled={!isConnected}
+              className="flex-1 bg-gray-800 text-sm text-gray-200 rounded-xl px-3 py-2 outline-none border border-gray-700 focus:border-blue-600 placeholder-gray-600 disabled:opacity-40" />
+            <button onClick={() => sendMessage()}
+              disabled={!input.trim() || chatLoading || !isConnected}
+              className="px-3 py-2 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-sm rounded-xl transition">
+              ↑
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
