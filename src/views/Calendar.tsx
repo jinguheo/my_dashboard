@@ -223,11 +223,11 @@ export default function Calendar({ calendar, settings }: Props) {
                   <button onClick={() => handleGcalConnect(selectedAccount)} disabled={gcalLoading} className="text-xs px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
                     {gcalLoading ? '조회 중...' : selectedAccount.provider === 'ics' ? 'ICS 조회' : selectedAccount.provider === 'caldav' ? 'CalDAV 조회' : 'MCP 조회'}
                   </button>
-                ) : tokens[selectedAccount.id] && selectedAccount.provider !== 'mcp' ? (
+                ) : tokens[selectedAccount.id] ? (
                   <button onClick={() => handleGcalDisconnect(selectedAccount)} className="text-xs text-red-500 hover:text-red-700">연결 해제</button>
                 ) : (
                   <button onClick={() => handleGcalConnect(selectedAccount)} disabled={connecting} className="text-xs px-2.5 py-1 bg-[#4285F4] hover:bg-[#3367d6] text-white rounded-lg disabled:opacity-50">
-                    {connecting ? '연결 중...' : selectedAccount.provider === 'mcp' ? 'MCP 조회' : '연결하기'}
+                    {connecting ? '연결 중...' : '연결하기'}
                   </button>
                 )}
               </div>

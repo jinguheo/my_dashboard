@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import ChatMarkdown from '@/components/ChatMarkdown'
-import type { AIMessage, AiProvider, Settings } from '@/types'
+import type { AIMessage, AiProvider, Settings, View } from '@/types'
 import type { TodoState } from '@/store/useTodos'
 import type { NoteState } from '@/store/useNotes'
 import type { CalendarState } from '@/store/useCalendar'
@@ -20,7 +20,7 @@ interface Props {
   calendar: CalendarState
   settings: Settings
   onProviderChange: (provider: AiProvider) => void
-  onNavigate?: (view: string) => void
+  onNavigate?: (view: View) => void
 }
 
 function ClaudeIcon() {

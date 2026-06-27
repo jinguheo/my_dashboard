@@ -20,5 +20,7 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "electron"]
+  "include": ["src"],
+  "//exclude": "electron/와 src/cards 카드그리드 시스템은 현재 App에 연결 안 된 미완성/고아 코드 + 미설치 의존성(electron, react-grid-layout) 참조 — 빌드에서 제외(나중에 되살릴 때 의존성 설치 후 제외 해제)",
+  "exclude": ["electron", "src/cards", "src/store/useLayout.ts", "src/types/card.ts", "src/components/AddCardMenu.tsx"]
 }
