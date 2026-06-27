@@ -11,6 +11,7 @@ import Settings from '@/views/Settings'
 import History from '@/views/History'
 import MentalAvatarFrame from '@/views/MentalAvatarFrame'
 import Journal from '@/views/Journal'
+import Preference from '@/views/Preference'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
 import { useNotes } from '@/store/useNotes'
@@ -124,6 +125,7 @@ export default function App() {
         {view === 'history'   && <History />}
         {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
         {view === 'mental_avatar' && <MentalAvatarFrame />}
+        {view === 'preference' && <Preference />}
       </main>
 
       {/* In-app toast */}

@@ -13,6 +13,7 @@ const nav: NavItem[] = [
   { id: 'journal',   label: '저널',       icon: '✍' },
   { id: 'mental_avatar', label: '멘탈 아바타', icon: '◉' },
   { id: 'history',   label: '기록',      icon: '◷' },
+  { id: 'preference', label: '성향',     icon: '◈' },
 ]
 
 interface Props {
