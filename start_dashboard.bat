@@ -18,6 +18,14 @@ if %ERRORLEVEL%==0 (
     echo Avatar API started
 )
 
+netstat -ano | findstr ":8768" | findstr "LISTENING" >nul
+if %ERRORLEVEL%==0 (
+    echo XTTS Worker already running
+) else (
+    start "XTTS Worker" /min "C:\Users\oem\miniconda3\envs\xtts\python.exe" "D:\MyWork\mental-avatar\api\xtts_server.py"
+    echo XTTS Worker started (model loads in ~60s, tts_only falls back to slow path until then)
+)
+
 tasklist /FI "WINDOWTITLE eq Avatar Watcher" 2>nul | findstr "python" >nul
 if %ERRORLEVEL%==0 (
     echo Avatar Watcher already running
