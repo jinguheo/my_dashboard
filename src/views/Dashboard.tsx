@@ -549,6 +549,21 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     }
   }
 
+  // AI 대화를 8766 conversations 테이블에 user/assistant 턴으로 기록 (실패해도 무시 — 부가 기능)
+  function logAiExchangeToKg(question: string, answer: string) {
+    if (!question.trim()) return
+    const post = (role: 'user' | 'assistant', content: string) => {
+      if (!content.trim()) return
+      fetch('http://127.0.0.1:8766/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ view: 'ai_chat', role, content }),
+      }).catch(() => {})
+    }
+    post('user', question)
+    post('assistant', answer)
+  }
+
   function buildAiContext(): string {
     const pending = todos.pending.map(t => `[${t.priority}] ${t.text}`).join('\n')
     const completed = todos.completedToday.map(t => t.text).join(', ')
@@ -619,6 +634,8 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         },
       )
       appendAiExchangeToNotes(raw, fullAnswer)
+      // 멘탈아바타 대화와 동일하게 conversations 테이블에도 기록 → MBTI/성향 자동측정의 깨끗한 user 신호로 쓰임
+      logAiExchangeToKg(raw, fullAnswer)
     } catch (e: any) {
       const errMsg = e?.error?.message || e?.message || String(e)
       setAiMessages(p => p.map((m, i) =>
