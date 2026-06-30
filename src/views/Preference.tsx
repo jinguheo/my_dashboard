@@ -43,17 +43,31 @@ interface PrefSuggestion {
   [traitKey: string]: string | number | undefined
 }
 
-function RadarChart({ data, size = 280, color1 = '#6366f1', color2 = '#fb923c' }: {
+function RadarChart({ data, size = 280, color1 = '#6366f1', color2 = '#fb923c', outerLabels, innerLabels, floor = false }: {
   data: AxisBlock; size?: number; color1?: string; color2?: string
+  outerLabels?: string[]; innerLabels?: string[]
+  /** true면 0점도 중심에 붙지 않고 최소 반경(floorR)을 가져 항상 N각형 꼭짓점이 보임 (MBTI용) */
+  floor?: boolean
 }) {
-  const center = size / 2, maxR = size / 2 - 36
+  const center = size / 2, maxR = size / 2 - 44
+  const floorR = floor ? maxR * 0.22 : 0   // 안쪽 극(0점)이 들어갈 최소 반경
   const n = data.axes.length
   const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n
   const pt = (i: number, val: number): [number, number] => {
     const r = (Math.max(0, Math.min(100, val)) / 100) * maxR
     return [center + r * Math.cos(angle(i)), center + r * Math.sin(angle(i))]
   }
-  const poly = (vals: number[]) => vals.map((v, i) => pt(i, v).join(',')).join(' ')
+  // 데이터 꼭짓점: floor 적용 시 0점도 floorR까지만 들어옴 → 항상 4개 점이 사각형으로 연결됨
+  const dataPt = (i: number, val: number): [number, number] => {
+    const r = floorR + (Math.max(0, Math.min(100, val)) / 100) * (maxR - floorR)
+    return [center + r * Math.cos(angle(i)), center + r * Math.sin(angle(i))]
+  }
+  // 차트 반경 밖 labelR 위치에 직접 좌표 계산 (pt()는 100%에서 클램핑되므로 라벨엔 사용 불가)
+  const labelPt = (i: number, r: number): [number, number] => [
+    center + r * Math.cos(angle(i)),
+    center + r * Math.sin(angle(i)),
+  ]
+  const poly = (vals: number[]) => vals.map((v, i) => dataPt(i, v).join(',')).join(' ')
   const uid = data.axes.join('-')
 
   return (
@@ -80,9 +94,8 @@ function RadarChart({ data, size = 280, color1 = '#6366f1', color2 = '#fb923c' }
           stroke="#e2e8f0" strokeWidth={1} strokeDasharray={r === 100 ? undefined : '3,3'} />
       ))}
 
-      {/* 축 선 (정중앙 위로 뻗는 세로축 선은 생략) */}
+      {/* 축 선 */}
       {Array.from({ length: n }, (_, i) => {
-        if (i === 0) return null
         const [x, y] = pt(i, 100)
         return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#e2e8f0" strokeWidth={1} />
       })}
@@ -97,7 +110,7 @@ function RadarChart({ data, size = 280, color1 = '#6366f1', color2 = '#fb923c' }
           <polygon points={poly(data.manual)} fill={`url(#grad1-${uid})`} stroke={color1} strokeWidth={2.5} strokeLinejoin="round" />
           {data.manual.map((v, i) => {
             if (!data.manual_set[i]) return null
-            const [x, y] = pt(i, v)
+            const [x, y] = dataPt(i, v)
             return <circle key={i} cx={x} cy={y} r={4} fill={color1} stroke="white" strokeWidth={1.5} />
           })}
         </g>
@@ -109,22 +122,70 @@ function RadarChart({ data, size = 280, color1 = '#6366f1', color2 = '#fb923c' }
           <polygon points={poly(data.auto)} fill={`url(#grad2-${uid})`} stroke={color2} strokeWidth={2.5} strokeDasharray="6,4" strokeLinejoin="round" />
           {data.auto.map((v, i) => {
             if (!data.auto_set[i]) return null
-            const [x, y] = pt(i, v)
+            const [x, y] = dataPt(i, v)
             return <circle key={i} cx={x} cy={y} r={4} fill={color2} stroke="white" strokeWidth={1.5} />
           })}
         </g>
       )}
 
-      {/* 축 라벨 */}
+      {/* 바깥쪽 라벨 — 차트 경계 밖 */}
       {data.axes.map((label, i) => {
-        const [x, y] = pt(i, 122)
+        const [lx, ly] = labelPt(i, maxR + 20)
+        const outer = outerLabels ? outerLabels[i] : label
         return (
-          <text key={label} x={x} y={y} fontSize={12} fontWeight={600} fill="#475569" textAnchor="middle" dominantBaseline="middle">
-            {label}
+          <text key={`out-${label}`} x={lx} y={ly} fontSize={12} fontWeight={700} fill="#334155" textAnchor="middle" dominantBaseline="middle">
+            {outer}
+          </text>
+        )
+      })}
+
+      {/* 안쪽 라벨 — 각 축의 중심 근처 (20% 지점) */}
+      {innerLabels && data.axes.map((_, i) => {
+        const [lx, ly] = labelPt(i, maxR * 0.22)
+        return (
+          <text key={`in-${i}`} x={lx} y={ly} fontSize={9} fill="#94a3b8" textAnchor="middle" dominantBaseline="middle">
+            {innerLabels[i]}
           </text>
         )
       })}
     </svg>
+  )
+}
+
+const MBTI_OUTER = ['E', 'N', 'T', 'J']
+const MBTI_INNER = ['I', 'S', 'F', 'P']
+
+function MbtiDiffList({ data }: { data: AxisBlock }) {
+  return (
+    <ul className="space-y-1.5">
+      {data.axes.map((label, i) => {
+        const outer = MBTI_OUTER[i]
+        const inner = MBTI_INNER[i]
+        const m = data.manual_set[i] ? data.manual[i] : null
+        const a = data.auto_set[i]   ? data.auto[i]   : null
+        const d = data.diff[i]
+        const mLetter = m === null ? '–' : m >= 50 ? outer : inner
+        const aLetter = a === null ? '–' : a >= 50 ? outer : inner
+        const tone = d === null ? 'bg-gray-200' : d >= 50 ? 'bg-red-400' : d >= 1 ? 'bg-amber-400' : 'bg-emerald-400'
+        return (
+          <li key={label} className="flex items-center gap-2 text-xs">
+            <span className="w-16 shrink-0 text-gray-500 font-medium">{label}</span>
+            <div className="flex-1 h-1.5 rounded-full bg-gray-100 relative overflow-hidden">
+              {m !== null && <div className="absolute inset-y-0 left-0 bg-indigo-500 rounded-full" style={{ width: `${m}%` }} />}
+              {a !== null && <div className="absolute top-0 h-1.5 w-0.5 bg-orange-500" style={{ left: `${a}%` }} />}
+            </div>
+            <span className="w-[72px] shrink-0 text-right text-gray-400">
+              <span className="text-indigo-500 font-semibold">{mLetter}</span>
+              {' / '}
+              <span className="text-orange-500 font-semibold">{aLetter}</span>
+              {d !== null && (
+                <span className={`ml-1 inline-block w-1.5 h-1.5 rounded-full ${tone}`} title={`차이 ${d}`} />
+              )}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -367,10 +428,14 @@ export default function Preference() {
                 </div>
               </div>
               <div className="p-5">
-                <RadarChart data={radar.mbti} size={260} />
-                <div className="mt-2">
-                  <DiffList data={radar.mbti} />
+                <RadarChart data={radar.mbti} size={260} floor
+                  outerLabels={['E', 'N', 'T', 'J']}
+                  innerLabels={['I', 'S', 'F', 'P']} />
+                <div className="flex justify-center gap-5 text-xs mt-1 mb-4">
+                  <span className="flex items-center gap-1.5 text-indigo-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" />직접입력</span>
+                  <span className="flex items-center gap-1.5 text-orange-500 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" />자동측정</span>
                 </div>
+                <MbtiDiffList data={radar.mbti} />
 
                 {radar.mbti.evidence.some(Boolean) && (
                   <div className="mt-4 pt-4 border-t border-surface-border space-y-2.5">
