@@ -41,11 +41,14 @@ export default function Todos({ todos }: Props) {
   })
 
   return (
-    <div className="flex-1 overflow-auto p-6 max-w-3xl mx-auto w-full">
-      <h1 className="text-xl font-bold text-gray-900 mb-5">✓ 할 일</h1>
+    <div className="view-canvas flex-1 overflow-auto">
+    <div className="mx-auto w-full max-w-3xl p-4 sm:p-6">
+      <p className="dashboard-kicker mb-1">Tasks</p>
+      <h1 className="mb-5 text-2xl font-bold tracking-tight text-gray-950">할 일</h1>
 
-      <form onSubmit={handleAdd} className="bg-white border border-surface-border rounded-xl p-4 mb-5 space-y-3">
+      <form onSubmit={handleAdd} className="view-panel mb-5 space-y-3 p-4">
         <input
+          aria-label="새로운 할 일"
           value={text}
           onChange={e => setText(e.target.value)}
           placeholder="새로운 할 일을 입력하세요..."
@@ -53,6 +56,7 @@ export default function Todos({ todos }: Props) {
         />
         <div className="flex gap-2 flex-wrap">
           <select
+            aria-label="우선순위"
             value={priority}
             onChange={e => setPriority(e.target.value as Priority)}
             className="bg-white border border-surface-border text-sm text-gray-700 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-gray-400"
@@ -62,12 +66,14 @@ export default function Todos({ todos }: Props) {
             <option value="low">🔵 낮음</option>
           </select>
           <input
+            aria-label="카테고리"
             value={category}
             onChange={e => setCategory(e.target.value)}
             placeholder="카테고리"
             className="bg-white border border-surface-border text-sm text-gray-700 rounded-lg px-3 py-1.5 w-28 outline-none focus:ring-1 focus:ring-gray-400"
           />
           <input
+            aria-label="마감일"
             type="date"
             value={dueDate}
             onChange={e => setDueDate(e.target.value)}
@@ -107,7 +113,7 @@ export default function Todos({ todos }: Props) {
 
       <div className="space-y-2">
         {sorted.length === 0 ? (
-          <div className="text-center py-12 text-gray-400 text-sm">할 일이 없습니다 🎉</div>
+          <div className="view-empty">할 일이 없습니다.</div>
         ) : (
           sorted.map(todo => (
             <div
@@ -154,6 +160,7 @@ export default function Todos({ todos }: Props) {
           ))
         )}
       </div>
+    </div>
     </div>
   )
 }

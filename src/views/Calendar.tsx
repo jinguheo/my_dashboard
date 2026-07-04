@@ -197,10 +197,10 @@ export default function Calendar({ calendar, settings }: Props) {
   }
 
   return (
-    <div className="flex-1 overflow-hidden flex">
-      <div className="flex-1 overflow-auto p-6">
+    <div className="view-canvas flex flex-1 overflow-hidden">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="max-w-lg mx-auto space-y-4">
-          <div className="bg-white border border-surface-border rounded-xl p-3 space-y-3">
+          <div className="view-panel space-y-3 p-3">
             <div className="flex items-center gap-2">
               <select
                 value={selectedAccount?.id || ''}

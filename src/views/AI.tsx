@@ -214,8 +214,8 @@ export default function AI({ todos, notes, calendar, settings, onProviderChange,
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2 shrink-0 flex-wrap">
+    <div className="view-canvas flex min-h-0 flex-1 flex-col">
+      <div className="view-header flex shrink-0 flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
         <h1 className="text-sm font-bold text-gray-900 mr-2">✦ AI 어시스턴트</h1>
 
         {/* Provider selector icons */}

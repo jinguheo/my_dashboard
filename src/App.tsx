@@ -1,17 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { lazy, Suspense, useState, useRef, useCallback, useEffect } from 'react'
 import Sidebar from '@/components/Sidebar'
-import Dashboard from '@/views/Dashboard'
-import Todos from '@/views/Todos'
-import Notes from '@/views/Notes'
-import AI from '@/views/AI'
-import Calendar from '@/views/Calendar'
-import Email from '@/views/Email'
-import Chat from '@/views/Chat'
-import Settings from '@/views/Settings'
-import History from '@/views/History'
-import MentalAvatarFrame from '@/views/MentalAvatarFrame'
-import Journal from '@/views/Journal'
-import Preference from '@/views/Preference'
 import SetupWizard from '@/components/SetupWizard'
 import { useTodos } from '@/store/useTodos'
 import { useNotes } from '@/store/useNotes'
@@ -24,7 +12,31 @@ import { logActivity } from '@/services/activityLog'
 import { claudeWebAutoConnect } from '@/services/claudeWeb'
 import type { View } from '@/types'
 
+const Dashboard = lazy(() => import('@/views/Dashboard'))
+const Todos = lazy(() => import('@/views/Todos'))
+const Notes = lazy(() => import('@/views/Notes'))
+const AI = lazy(() => import('@/views/AI'))
+const Calendar = lazy(() => import('@/views/Calendar'))
+const Email = lazy(() => import('@/views/Email'))
+const Chat = lazy(() => import('@/views/Chat'))
+const Settings = lazy(() => import('@/views/Settings'))
+const History = lazy(() => import('@/views/History'))
+const MentalAvatarFrame = lazy(() => import('@/views/MentalAvatarFrame'))
+const Journal = lazy(() => import('@/views/Journal'))
+const Preference = lazy(() => import('@/views/Preference'))
+
 interface Toast { title: string; body: string; view: 'email' | 'chat' }
+
+function ViewLoading() {
+  return (
+    <div className="view-canvas flex flex-1 items-center justify-center" role="status" aria-live="polite">
+      <div className="flex items-center gap-3 text-sm text-gray-500">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" aria-hidden="true" />
+        화면을 불러오는 중입니다
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard')
@@ -102,7 +114,7 @@ export default function App() {
   }, [todos.todos, notes.notes, calendar.events, todos.completedToday.length])
 
   return (
-    <div className="flex h-screen bg-white text-gray-900 overflow-hidden">
+    <div className="flex h-screen bg-[#f4f6f8] text-gray-900 overflow-hidden">
       {showWizard && (
         <SetupWizard
           onComplete={(patch) => { updateSettings(patch); setShowWizard(false) }}
@@ -111,7 +123,8 @@ export default function App() {
       )}
       <Sidebar current={view} onNavigate={handleNavigate} badges={badges} />
 
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main className="flex-1 min-w-0 overflow-hidden flex flex-col pb-16 md:pb-0">
+        <Suspense fallback={<ViewLoading />}>
         {view === 'dashboard' && (
           <Dashboard todos={todos} notes={notes} calendar={calendar} settings={settings} onNavigate={handleNavigate} onUpdateSettings={updateSettings} />
         )}
@@ -126,6 +139,7 @@ export default function App() {
         {view === 'journal'   && <Journal journal={journal} sessionKey={settings.claudeSessionKey} />}
         {view === 'mental_avatar' && <MentalAvatarFrame />}
         {view === 'preference' && <Preference />}
+        </Suspense>
       </main>
 
       {/* In-app toast */}

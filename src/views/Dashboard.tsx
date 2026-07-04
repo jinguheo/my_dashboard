@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import ChatMarkdown from '@/components/ChatMarkdown'
+import DashboardHeader from '@/components/dashboard/DashboardHeader'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -768,91 +769,43 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div className="shrink-0 p-6 pb-0 space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">안녕하세요, {settings.userName}님</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{formatDate()}</p>
-        </div>
-        <div className="flex gap-2 text-sm items-center">
-          <button
-            onClick={async () => {
-              try {
-                await fetch('http://127.0.0.1:8765/restart', { method: 'POST' })
-              } catch {}
-            }}
-            title="MCP · Vite 서버 재시작"
-            className="px-2.5 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors text-xs"
-          >
-            ↺ 서버 재시작
-          </button>
-          <button onClick={() => onNavigate('todos')} className="px-3 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-700 hover:bg-surface-hover transition-colors">
-            할 일 관리
-          </button>
-          <button onClick={() => onNavigate('settings')} className="px-3 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-700 hover:bg-surface-hover transition-colors">
-            연결 설정
-          </button>
-          <button onClick={() => onNavigate('ai')} className="px-3 py-1.5 bg-gray-900 rounded-lg text-white hover:bg-gray-700 transition-colors">
-            AI 브리핑
-          </button>
-          <button
-            onClick={() => { setShowAi(v => { localStorage.setItem('dash-show-ai', String(!v)); return !v }) }}
-            title="AI 패널 토글"
-            className="px-2.5 py-1.5 bg-surface border border-surface-border rounded-lg text-gray-500 hover:bg-surface-hover transition-colors text-xs"
-          >
-            {showAi ? 'AI 숨기기' : 'AI 보기'}
-          </button>
-          <button
-            onClick={() => setEditMode(v => !v)}
-            className={`px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${editMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-surface border-surface-border text-gray-500 hover:bg-surface-hover'}`}
-          >
-            {editMode ? '완료' : '배치 편집'}
-          </button>
-        </div>
-      </div>
-
-      {/* 검색 바 */}
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="flex bg-white border border-surface-border rounded-xl overflow-hidden flex-1 shadow-sm">
-          <select
-            value={searchEngine}
-            onChange={e => setSearchEngine(e.target.value)}
-            className="text-xs text-gray-500 bg-gray-50 border-r border-surface-border px-3 outline-none"
-          >
-            {Object.entries(SEARCH_ENGINES).map(([key, { label }]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-          <input
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="검색어를 입력하세요..."
-            className="flex-1 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none"
-          />
-        </div>
-        <button type="submit" className="px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white text-sm rounded-xl transition-colors">
-          검색
-        </button>
-      </form>
-
-      </div>{/* end header */}
-      <div ref={containerRef} className="flex-1 min-h-0 flex gap-0 items-stretch px-6 pb-6 pt-5" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
-        <div className="space-y-5 min-w-0 overflow-y-auto pr-1" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
-      <div className="grid gap-3 items-start" style={{ gridTemplateColumns: '1fr 1fr 1fr 3fr' }}>
+      <DashboardHeader
+        userName={settings.userName}
+        dateLabel={formatDate()}
+        searchQuery={searchQuery}
+        searchEngine={searchEngine}
+        searchEngines={SEARCH_ENGINES}
+        showAi={showAi}
+        editMode={editMode}
+        onSearchQueryChange={setSearchQuery}
+        onSearchEngineChange={setSearchEngine}
+        onSearch={handleSearch}
+        onNavigateTodos={() => onNavigate('todos')}
+        onNavigateSettings={() => onNavigate('settings')}
+        onNavigateAi={() => onNavigate('ai')}
+        onToggleAi={() => setShowAi(value => {
+          localStorage.setItem('dash-show-ai', String(!value))
+          return !value
+        })}
+        onToggleEdit={() => setEditMode(value => !value)}
+      />
+      <div ref={containerRef} className="dashboard-workspace flex min-h-0 flex-1 flex-col items-stretch gap-5 overflow-hidden px-4 pb-6 pt-5 sm:px-6 lg:flex-row lg:gap-0" style={{ userSelect: isDragging.current ? 'none' : 'auto' }}>
+        <div className="dashboard-primary min-w-0 space-y-5 overflow-y-auto pr-0 lg:pr-1" style={{ width: showAi ? `${splitPct}%` : '100%' }}>
+      <div className="grid grid-cols-2 items-stretch gap-3 xl:grid-cols-[1fr_1fr_1fr_3fr]">
         {/* 남은 할 일 */}
-        <div onClick={() => onNavigate('todos')} className="bg-surface border border-surface-border rounded-xl p-3 cursor-pointer hover:bg-surface-hover transition-colors">
+        <div onClick={() => onNavigate('todos')} className="dashboard-card-interactive cursor-pointer p-4">
           <p className="text-[10px] text-gray-500">남은 할 일</p>
           <p className="text-2xl font-bold text-blue-500">{todos.pending.length}</p>
           <p className="text-[10px] text-gray-400 mt-0.5">완료 {todos.completedToday.length}개</p>
         </div>
         {/* 높은 우선순위 */}
-        <div onClick={() => onNavigate('todos')} className="bg-surface border border-surface-border rounded-xl p-3 cursor-pointer hover:bg-surface-hover transition-colors">
+        <div onClick={() => onNavigate('todos')} className="dashboard-card-interactive cursor-pointer p-4">
           <p className="text-[10px] text-gray-500">높은 우선순위</p>
           <p className="text-2xl font-bold text-red-500">{todos.highPriority.length}</p>
           <p className="text-[10px] text-gray-400 mt-0.5">{todos.highPriority.length > 0 ? '먼저 확인' : '없음'}</p>
         </div>
         {/* 오늘 현황 */}
-        <div className="bg-surface border border-surface-border rounded-xl p-3">
+        <div className="dashboard-card p-4">
           <p className="text-[10px] text-gray-500 mb-1.5">오늘 현황</p>
           <div className="space-y-1">
             {(['high', 'medium', 'low'] as const).map(p => {
@@ -871,18 +824,20 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           <p className="text-[10px] text-gray-400 mt-1.5 text-right">{todos.todos.length > 0 ? `${Math.round((todos.completed.length / todos.todos.length) * 100)}%` : '0%'}</p>
         </div>
         {/* 매일 하는 일 — 전체 패널 */}
-        <DailyRoutinePanel
-          routine={routine}
-          todayTodos={todayTodos}
-          dailyLog={dailyLog}
-          onToggleTodo={todos.toggle}
-          onNavigate={onNavigate}
-          upcoming={[]}
-        />
+        <div className="col-span-2 xl:col-span-1">
+          <DailyRoutinePanel
+            routine={routine}
+            todayTodos={todayTodos}
+            dailyLog={dailyLog}
+            onToggleTodo={todos.toggle}
+            onNavigate={onNavigate}
+            upcoming={[]}
+          />
+        </div>
       </div>
 
       {/* 다가오는 일정 — 5열 행 바로 아래 */}
-      <div className="bg-white border border-surface-border rounded-xl p-4">
+      <div className="dashboard-card p-4">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold text-gray-900">다가오는 일정</h2>
           <button onClick={() => onNavigate('calendar')} className="text-xs text-gray-400 hover:text-gray-700">캘린더</button>
@@ -1014,6 +969,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               if (shortcutError) setShortcutError('')
             }}
             placeholder="바로가기 URL 추가: youtube.com, docs.google.com ..."
+            aria-label="바로가기 URL"
             className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
           />
           <button
@@ -1283,12 +1239,12 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             {/* 드래그 구분선 */}
             <div
               onMouseDown={handleDividerMouseDown}
-              className="w-1.5 shrink-0 self-stretch cursor-col-resize flex items-center justify-center group hover:bg-gray-200 transition-colors mx-1"
+              className="dashboard-divider w-1.5 shrink-0 self-stretch cursor-col-resize flex items-center justify-center group hover:bg-gray-200 transition-colors mx-1"
               title="드래그하여 크기 조절"
             >
               <div className="w-0.5 h-12 bg-gray-200 group-hover:bg-gray-400 rounded-full transition-colors" />
             </div>
-            <div className="min-w-0 flex flex-col" style={{ width: `${100 - splitPct}%` }}>
+            <div className="dashboard-assistant min-w-0 flex flex-col" style={{ width: `${100 - splitPct}%` }}>
               <DashboardAiPanel
                 messages={aiMessages}
                 input={aiInput}
@@ -1340,7 +1296,7 @@ function DailyRoutinePanel({
   }
 
   return (
-    <section className="bg-white border border-surface-border rounded-xl p-4 space-y-3 flex flex-col" style={{ maxHeight: '240px' }}>
+    <section className="dashboard-card flex flex-col space-y-3 p-4" style={{ maxHeight: '240px' }}>
       <div className="flex items-center justify-between shrink-0">
         <h2 className="font-semibold text-gray-900 text-sm">매일 하는 일</h2>
         <button onClick={() => onNavigate('todos')} className="text-xs text-gray-400 hover:text-gray-700">
@@ -1382,7 +1338,8 @@ function DailyRoutinePanel({
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="직접 기록 후 Enter"
+          placeholder="직접 기록 후 Enter"
+          aria-label="오늘 활동 기록"
             className="flex-1 bg-surface border border-surface-border rounded-lg px-2.5 py-1.5 text-xs text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
           />
           <button type="submit" disabled={!input.trim()}
@@ -1476,7 +1433,7 @@ function StatCard({ label, value, sub, color, onClick, setupRequired = false }: 
   return (
     <div
       onClick={onClick}
-      className="bg-surface border border-surface-border rounded-xl p-4 cursor-pointer hover:bg-surface-hover transition-colors"
+      className="dashboard-card-interactive cursor-pointer p-4"
     >
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className={`text-3xl font-bold ${color}`}>{value}</p>
@@ -1507,7 +1464,7 @@ function PdfMcpPanel({
   onAskAi: () => void
 }) {
   return (
-    <section className="bg-white border border-surface-border rounded-xl p-4 space-y-3">
+    <section className="dashboard-card space-y-3 p-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-semibold text-gray-900 text-sm">PDF / 웹 요약</h2>
         {summary && (
@@ -1525,6 +1482,7 @@ function PdfMcpPanel({
           value={pdfUrl}
           onChange={e => onUrlChange(e.target.value)}
           placeholder="PDF 또는 웹 URL"
+          aria-label="PDF 또는 웹 URL"
           className="min-w-0 flex-1 bg-surface border border-surface-border rounded-lg px-2.5 py-1.5 text-xs text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
         />
         <button
@@ -1577,10 +1535,10 @@ function DashboardAiPanel({
   ]
 
   return (
-    <aside className="flex-1 min-h-0 bg-white border border-surface-border rounded-xl flex flex-col overflow-hidden">
-      <div className="px-4 py-3 border-b border-surface-border flex items-center justify-between">
+    <aside className="dashboard-card flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex items-center justify-between border-b border-surface-border bg-gray-50/70 px-4 py-3.5">
         <div>
-          <h2 className="text-sm font-semibold text-gray-900">AI 대화</h2>
+          <h2 className="text-sm font-semibold text-gray-950">AI 대화</h2>
           <p className="text-[11px] text-gray-400 mt-0.5">현재 대시보드 정보를 보고 답변합니다.</p>
         </div>
         {messages.length > 0 && (
@@ -1635,7 +1593,7 @@ function DashboardAiPanel({
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-surface-border shrink-0">
+      <div className="shrink-0 border-t border-surface-border bg-gray-50/60 p-3">
         <textarea
           value={input}
           onChange={e => onInput(e.target.value)}
@@ -1647,13 +1605,14 @@ function DashboardAiPanel({
           }}
           disabled={!hasApiKey || loading}
           placeholder="질문을 입력하세요..."
+          aria-label="AI 질문"
           rows={3}
-          className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 resize-none disabled:opacity-50"
+          className="w-full resize-none rounded-xl border border-surface-border bg-white px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5 disabled:opacity-50"
         />
         <button
           onClick={onSend}
           disabled={!hasApiKey || loading || !input.trim()}
-          className="mt-2 w-full py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40"
+          className="mt-2 w-full rounded-xl bg-gray-950 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-40"
         >
           {loading ? '답변 중...' : '질문 보내기'}
         </button>
@@ -1672,7 +1631,7 @@ function Panel({ title, children, className = '', actionLabel, onAction }: {
   if (title.startsWith('PDF')) return null
 
   return (
-    <section className={`bg-white border border-surface-border rounded-xl p-4 space-y-3 ${className}`}>
+    <section className={`dashboard-card space-y-3 p-4 ${className}`}>
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-gray-900 text-sm">{title}</h2>
         {actionLabel && onAction && (

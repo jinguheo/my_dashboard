@@ -131,8 +131,8 @@ export default function Email({ settings, onNavigate }: Props) {
   const unread = emails.filter(e => !e.isRead).length
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-6 py-3 border-b border-surface-border flex items-center gap-2">
+    <div className="view-canvas flex flex-1 flex-col overflow-hidden">
+      <div className="view-header flex items-center gap-2 px-4 py-3 sm:px-6">
         <h1 className="text-sm font-bold text-gray-900">받은 편지함</h1>
         {unread > 0 && <span className="px-1.5 py-0.5 bg-gray-900 text-white text-[10px] font-bold rounded-full">{unread}</span>}
         <select

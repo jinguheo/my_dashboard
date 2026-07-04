@@ -248,9 +248,9 @@ export default function Notes({ notes: noteState }: Props) {
   }
 
   return (
-    <div className="flex-1 overflow-hidden flex">
+    <div className="view-canvas flex flex-1 overflow-hidden">
       {/* 노트 목록 */}
-      <div className="w-56 shrink-0 bg-gray-50 border-r border-surface-border flex flex-col">
+      <div className={`${activeNote ? 'hidden md:flex' : 'flex'} w-full shrink-0 flex-col border-r border-surface-border bg-white/70 md:w-56`}>
         <div className="p-3 border-b border-surface-border flex items-center justify-between gap-1">
           <span className="text-sm font-semibold text-gray-900">📝 노트</span>
           <div className="flex items-center gap-1">
@@ -357,10 +357,19 @@ export default function Notes({ notes: noteState }: Props) {
       </div>
 
       {activeNote ? (
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* 헤더 */}
-          <div className="px-6 py-3 border-b border-surface-border flex items-center gap-3 shrink-0">
+          <div className="flex shrink-0 items-center gap-2 border-b border-surface-border px-3 py-3 sm:gap-3 sm:px-6">
+            <button
+              type="button"
+              onClick={() => setActiveId(null)}
+              aria-label="노트 목록으로 돌아가기"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-surface-border bg-white text-gray-600 md:hidden"
+            >
+              ←
+            </button>
             <input
+              aria-label="노트 제목"
               value={activeNote.title}
               onChange={e => noteState.update(activeNote.id, { title: e.target.value })}
               placeholder="제목"
@@ -384,7 +393,7 @@ export default function Notes({ notes: noteState }: Props) {
             {mode === 'edit' && (
               <div
                 ref={editorWrapRef}
-                className="overflow-auto px-6 py-4 flex-1"
+                className="flex-1 overflow-auto px-4 py-4 sm:px-6"
               >
                 <CodeMirror
                   value={activeNote.content}
@@ -410,7 +419,7 @@ export default function Notes({ notes: noteState }: Props) {
             )}
             {mode === 'preview' && (
               <div
-                className="overflow-auto px-6 py-4 flex-1"
+                className="flex-1 overflow-auto px-4 py-4 sm:px-6"
                 onDoubleClick={handlePreviewDoubleClick}
                 title="더블클릭하면 해당 위치의 편집 화면으로 이동합니다"
               >

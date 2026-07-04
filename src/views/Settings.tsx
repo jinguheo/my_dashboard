@@ -129,9 +129,9 @@ export default function SettingsView({ settings, onSave }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('프로필')
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="view-canvas flex-1 flex flex-col overflow-hidden">
       {/* 탭 헤더 */}
-      <div className="border-b border-surface-border bg-white px-4 flex gap-1 shrink-0">
+      <div className="view-header flex shrink-0 gap-1 overflow-x-auto px-4">
         {TABS.map(tab => (
           <button
             key={tab}
@@ -148,7 +148,7 @@ export default function SettingsView({ settings, onSave }: Props) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
       <div className="max-w-2xl mx-auto">
         <form onSubmit={handleSave} className="space-y-5">
 
