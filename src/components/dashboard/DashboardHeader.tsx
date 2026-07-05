@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 
 interface SearchEngine {
   label: string
@@ -19,6 +19,7 @@ interface Props {
   onNavigateTodos: () => void
   onNavigateSettings: () => void
   onNavigateAi: () => void
+  onRestartServers: () => Promise<void>
   onToggleAi: () => void
   onToggleEdit: () => void
 }
@@ -37,9 +38,21 @@ export default function DashboardHeader({
   onNavigateTodos,
   onNavigateSettings,
   onNavigateAi,
+  onRestartServers,
   onToggleAi,
   onToggleEdit,
 }: Props) {
+  const [restarting, setRestarting] = useState(false)
+
+  async function restartServers() {
+    setRestarting(true)
+    try {
+      await onRestartServers()
+    } finally {
+      window.setTimeout(() => setRestarting(false), 3000)
+    }
+  }
+
   return (
     <div className="shrink-0 space-y-4 px-4 pt-5 sm:px-6 sm:pt-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -50,6 +63,14 @@ export default function DashboardHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-sm">
+          <button
+            onClick={restartServers}
+            disabled={restarting}
+            title="MCP · Vite 서버 재시작"
+            className="rounded-xl border border-surface-border bg-white px-3 py-2 text-xs text-gray-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+          >
+            {restarting ? '재시작 중…' : '↺ 서버 재시작'}
+          </button>
           <button onClick={onNavigateTodos} className="rounded-xl border border-surface-border bg-white px-3 py-2 text-gray-700 transition-colors hover:bg-surface-hover">
             할 일 관리
           </button>

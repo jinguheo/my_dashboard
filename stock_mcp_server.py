@@ -18,6 +18,7 @@ from email.utils import parsedate_to_datetime
 from datetime import date as _date
 import re as _re
 import time as _time
+import html as _html
 
 app = Flask(__name__)
 CORS(app)
@@ -578,7 +579,19 @@ def _categorize(item):
         return 'LLM'
     return '전반'
 
-def fetch_rss_feeds(urls, max_per_feed=5):
+def _clean_feed_text(value, limit=260):
+    if not value:
+        return ''
+    text = _html.unescape(str(value))
+    text = _re.sub(r'<(script|style)[^>]*>.*?</\1>', ' ', text, flags=_re.I | _re.S)
+    text = _re.sub(r'<[^>]+>', ' ', text)
+    text = _re.sub(r'\s+', ' ', text).strip()
+    if len(text) > limit:
+        text = text[:limit].rstrip() + '…'
+    return text
+
+
+def fetch_rss_feeds(urls, max_per_feed=8):
     """RSS/Atom 피드 파싱 (표준 라이브러리만 사용)"""
     items = []
     NS = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -595,22 +608,34 @@ def fetch_rss_feeds(urls, max_per_feed=5):
                 for e in entries:
                     link_el = e.find('{http://www.w3.org/2005/Atom}link')
                     link = link_el.get('href', '') if link_el is not None else ''
+                    summary = (
+                        e.findtext('{http://www.w3.org/2005/Atom}summary')
+                        or e.findtext('{http://www.w3.org/2005/Atom}content')
+                        or ''
+                    )
                     items.append({
                         'title': e.findtext('{http://www.w3.org/2005/Atom}title') or '',
                         'link': link,
                         'date': e.findtext('{http://www.w3.org/2005/Atom}updated') or e.findtext('{http://www.w3.org/2005/Atom}published') or '',
                         'source': feed_title,
+                        'summary': _clean_feed_text(summary),
                     })
             else:
                 # RSS 2.0
                 channel = root.find('channel') or root
                 feed_title = channel.findtext('title') or url
                 for item in list(channel.findall('item'))[:max_per_feed]:
+                    summary = (
+                        item.findtext('description')
+                        or item.findtext('{http://purl.org/rss/1.0/modules/content/}encoded')
+                        or ''
+                    )
                     items.append({
                         'title': item.findtext('title') or '',
                         'link': item.findtext('link') or '',
                         'date': item.findtext('pubDate') or '',
                         'source': feed_title,
+                        'summary': _clean_feed_text(summary),
                     })
         except Exception:
             continue
@@ -1454,7 +1479,7 @@ TOOLS = [
             'type': 'object',
             'properties': {
                 'urls':       {'type': 'array', 'items': {'type': 'string'}, 'description': 'RSS 피드 URL 목록'},
-                'maxPerFeed': {'type': 'integer', 'description': '피드당 최대 항목 수 (기본 5)'},
+                'maxPerFeed': {'type': 'integer', 'description': '피드당 최대 항목 수 (기본 8)'},
             },
             'required': ['urls'],
         },
@@ -1637,7 +1662,7 @@ def mcp():
             try:
                 items = fetch_rss_feeds(
                     args.get('urls', []),
-                    int(args.get('maxPerFeed', 5)),
+                    int(args.get('maxPerFeed', 8)),
                 )
                 return jsonify({'jsonrpc': '2.0', 'id': req_id,
                                 'result': {'content': [{'type': 'json', 'json': items}]}})
@@ -1890,6 +1915,65 @@ def pdf_proxy():
         return jsonify({'error': str(e)}), 502
     content_type = resp.headers.get('content-type', 'application/pdf')
     return Response(resp.content, mimetype=content_type)
+
+@app.route('/summarize-file', methods=['POST'])
+def summarize_file():
+    """브라우저에서 업로드한 로컬 PDF 또는 텍스트 문서를 요약한다."""
+    import html as _html
+    import os as _os
+
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename:
+        return jsonify({'error': '파일을 선택해주세요.'}), 400
+
+    filename = _os.path.basename(uploaded.filename)
+    extension = _os.path.splitext(filename)[1].lower()
+    allowed = {'.pdf', '.txt', '.md', '.markdown', '.html', '.htm'}
+    if extension not in allowed:
+        return jsonify({'error': 'PDF, TXT, Markdown, HTML 파일만 지원합니다.'}), 400
+
+    content = uploaded.read(25 * 1024 * 1024 + 1)
+    if len(content) > 25 * 1024 * 1024:
+        return jsonify({'error': '파일은 25MB 이하여야 합니다.'}), 413
+
+    try:
+        page_count = None
+        pages_read = 1
+        extractor = 'text'
+
+        if extension == '.pdf':
+            text, page_count = _library_pdf_extract(content, 12)
+            extractor = 'pypdf'
+            if not text:
+                text = _basic_pdf_extract(content, 12)
+                extractor = 'basic'
+            if not text:
+                raise Exception('PDF에서 텍스트를 추출하지 못했습니다. 스캔 이미지 PDF일 수 있습니다.')
+            pages_read = min(page_count or 12, 12)
+        else:
+            text = content.decode('utf-8-sig', errors='replace')
+            if extension in {'.html', '.htm'}:
+                text = _re.sub(r'(?is)<(script|style).*?>.*?</\1>', ' ', text)
+                text = _html.unescape(_re.sub(r'(?s)<[^>]+>', ' ', text))
+
+        summary, key_points = _summarize_text(text, 5)
+        if not summary:
+            raise Exception('요약할 텍스트가 없습니다.')
+
+        return jsonify({
+            'url': '',
+            'title': filename,
+            'summary': summary,
+            'keyPoints': key_points,
+            'textPreview': text[:1200],
+            'charCount': len(text),
+            'pageCount': page_count,
+            'pagesRead': pages_read,
+            'extractor': extractor,
+        })
+    except Exception as e:
+        logging.exception('로컬 파일 요약 실패')
+        return jsonify({'error': str(e)}), 400
 
 
 @app.route('/avatar/tts_only', methods=['POST'])

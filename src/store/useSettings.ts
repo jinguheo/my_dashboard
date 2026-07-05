@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import type { Settings } from '@/types'
+import { DEFAULT_RSS_FEEDS } from '@/services/rss'
 
 const KEY = 'dash-settings'
+const LEGACY_RSS_FEEDS = 'https://www.yna.co.kr/rss/society.xml\nhttps://news.hada.io/rss\nhttps://www.hankyung.com/feed/all-news'
 const DEFAULTS: Settings = {
   anthropicApiKey: '',
   openaiApiKey: '',
@@ -26,12 +28,12 @@ const DEFAULTS: Settings = {
   telegramToken: '',
   chatConnections: [],
   searchEngine: 'google',
-  rssFeeds: 'https://www.yna.co.kr/rss/society.xml\nhttps://news.hada.io/rss\nhttps://www.hankyung.com/feed/all-news',
+  rssFeeds: DEFAULT_RSS_FEEDS,
 }
 
 function normalizeSettings(raw: Partial<Settings>): Settings {
   const merged = { ...DEFAULTS, ...raw }
-  if (!merged.rssFeeds) merged.rssFeeds = DEFAULTS.rssFeeds
+  if (!merged.rssFeeds || merged.rssFeeds.trim() === LEGACY_RSS_FEEDS) merged.rssFeeds = DEFAULTS.rssFeeds
 
   if ((!merged.mailAccounts || merged.mailAccounts.length === 0) && merged.gmailClientId) {
     merged.mailAccounts = [{

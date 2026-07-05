@@ -3,6 +3,7 @@ import type { CalendarAccount, ChatConnection, ConnectionAuth, ConnectionAuthMod
 import { listMcpTools } from '@/services/mcp'
 import { fetchApiKeyViaLogin } from '@/services/apiKeyLogin'
 import { claudeWebLogin, claudeWebCaptureSession } from '@/services/claudeWeb'
+import { mergeRssFeedUrls, POPULAR_RSS_FEEDS } from '@/services/rss'
 import {
   loadGoogleAuth, requestGmailToken, revokeGmailToken,
   getStoredToken, storeToken, clearGmailToken,
@@ -39,6 +40,13 @@ export default function SettingsView({ settings, onSave }: Props) {
 
   function setField<K extends keyof Settings>(field: K, value: Settings[K]) {
     setForm(p => ({ ...p, [field]: value }))
+  }
+
+  function addPopularRssFeeds() {
+    setForm(p => ({
+      ...p,
+      rssFeeds: mergeRssFeedUrls(p.rssFeeds || ''),
+    }))
   }
 
   function updateMail(id: string, patch: Partial<MailAccount>) {
@@ -262,7 +270,16 @@ export default function SettingsView({ settings, onSave }: Props) {
               onChange={v => setField('rssFeeds', v)}
               placeholder={'https://feeds.feedburner.com/...\nhttps://hnrss.org/frontpage\nhttps://techcrunch.com/feed/'}
             />
-            <p className="text-xs text-gray-400">한 줄에 하나씩 RSS/Atom 피드 URL을 입력하세요.</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-gray-400">한 줄에 하나씩 RSS/Atom 피드 URL을 입력하세요.</p>
+              <button
+                type="button"
+                onClick={addPopularRssFeeds}
+                className="shrink-0 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200"
+              >
+                인기 피드 {POPULAR_RSS_FEEDS.length}개 추가
+              </button>
+            </div>
           </Section>
           <Section title="설정 파일 가져오기">
             <label className="block">

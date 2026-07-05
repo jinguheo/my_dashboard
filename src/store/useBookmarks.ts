@@ -19,6 +19,17 @@ function normalize(bm: unknown): Bookmark {
   }
 }
 
+function canonicalUrl(value: string) {
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`)
+    url.hash = ''
+    if (url.pathname === '/') url.pathname = ''
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return value.trim().replace(/\/$/, '')
+  }
+}
+
 const defaults: Bookmark[] = [
   { id: '0', url: 'https://www.youtube.com',    title: 'YouTube',  favicon: 'https://www.youtube.com/favicon.ico',                                                                clicks: 0 },
   { id: '1', url: 'https://github.com',          title: 'GitHub',   favicon: 'https://github.com/favicon.ico',                                                                     clicks: 0 },
@@ -29,6 +40,28 @@ const defaults: Bookmark[] = [
 ]
 
 const KEY = 'bookmarks'
+
+function bookmarkTitle(url: URL, title?: string) {
+  const explicitTitle = title?.trim()
+  if (explicitTitle) return explicitTitle
+
+  for (const key of ['title', 'topic', 'q', 'query', 'search']) {
+    const value = url.searchParams.get(key)?.trim()
+    if (value) return value
+  }
+
+  const pathParts = url.pathname.split('/').filter(Boolean)
+  const lastPath = pathParts[pathParts.length - 1]
+  if (lastPath) {
+    try {
+      return decodeURIComponent(lastPath).replace(/[-_]+/g, ' ')
+    } catch {
+      return lastPath.replace(/[-_]+/g, ' ')
+    }
+  }
+
+  return url.hostname.replace(/^www\./, '')
+}
 
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
@@ -45,15 +78,25 @@ export function useBookmarks() {
   }, [bookmarks])
 
   const add = useCallback((url: string, title?: string) => {
-    const clean = url.startsWith('http') ? url : `https://${url}`
-    const host = new URL(clean).hostname
-    setBookmarks(prev => [...prev, {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`)
+    const clean = canonicalUrl(parsed.toString())
+    const host = parsed.hostname
+    const nextTitle = bookmarkTitle(parsed, title)
+
+    setBookmarks(prev => {
+      const sameAddressCount = prev.filter(bookmark => canonicalUrl(bookmark.url) === clean).length
+      const displayTitle = title?.trim()
+        ? nextTitle
+        : sameAddressCount > 0 ? `${nextTitle} ${sameAddressCount + 1}` : nextTitle
+
+      return [...prev, {
       id: crypto.randomUUID(),
       url: clean,
-      title: title || host,
+      title: displayTitle,
       favicon: `https://www.google.com/s2/favicons?domain=${host}&sz=32`,
       clicks: 0,
-    }])
+      }]
+    })
   }, [])
 
   const remove = useCallback((id: string) => {

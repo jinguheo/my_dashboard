@@ -260,7 +260,9 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [aiInput, setAiInput] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [shortcutUrl, setShortcutUrl] = useState('')
+  const [shortcutTitle, setShortcutTitle] = useState('')
   const [shortcutError, setShortcutError] = useState('')
+  const [shortcutLoading, setShortcutLoading] = useState(false)
   const [pdfUrl, setPdfUrl] = useState('')
   const [activePdfUrl, setActivePdfUrl] = useState('')
   const [pdfSummary, setPdfSummary] = useState<PdfSummary | null>(null)
@@ -295,7 +297,21 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [showAi, setShowAi] = useState<boolean>(() => localStorage.getItem('dash-show-ai') !== 'false')
   const containerRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
+  const aiPanelRef = useRef<HTMLDivElement>(null)
   const aiBottomRef = useRef<HTMLDivElement>(null)
+
+  function revealAiPanel() {
+    if (!showAi) {
+      setShowAi(true)
+      localStorage.setItem('dash-show-ai', 'true')
+    }
+    window.setTimeout(() => {
+      aiPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+      const el = aiBottomRef.current
+      const scroller = el?.parentElement
+      if (scroller) scroller.scrollTop = scroller.scrollHeight
+    }, 0)
+  }
 
   function handleDividerMouseDown(e: React.MouseEvent) {
     e.preventDefault()
@@ -502,7 +518,8 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   function pdfContextBlock(summary: PdfSummary): string {
     return [
       `문서명: ${summary.title}`,
-      `URL: ${summary.url}`,
+      summary.url ? `URL: ${summary.url}` : '출처: 로컬 파일',
+      `현재 요약:\n${summary.summary}`,
       `핵심 문장:\n${summary.keyPoints.map(p => `- ${p}`).join('\n')}`,
       `본문 미리보기:\n${summary.textPreview}`,
     ].join('\n')
@@ -593,10 +610,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     ].filter(Boolean).join('\n\n') + (pdfContext ? `\n\nCurrent PDF document:\n${pdfContext}` : '')
   }
 
-  async function sendAiQuestion(question?: string) {
+  async function sendAiQuestion(question?: string, explicitContext?: string) {
     const raw = (question ?? aiInput).trim()
     if (!raw || aiLoading) return
     if (!hasAiKey) { onNavigate('settings'); return }
+    revealAiPanel()
 
     const isBriefingRequest = /브리핑|briefing|오늘\s*요약|뉴스\s*요약/.test(raw)
     const content = isBriefingRequest
@@ -609,7 +627,9 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           rssNews: rssItems.slice(0, 8).map(it => `[${it.source}] ${it.title}`),
           aiNews: aiNews.slice(0, 5).map(n => n.title),
         })
-      : raw
+      : explicitContext
+        ? `${raw}\n\n[반드시 아래 현재 문서만 우선하여 분석하세요]\n${explicitContext}`
+        : raw
 
     setAiInput('')
     setAiLoading(true)
@@ -622,10 +642,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
 
     const answerIndex = nextMessages.length - 1
     const history = nextMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
+    history[history.length - 1] = { role: 'user', content }
 
     let fullAnswer = ''
     try {
-      const kgContext = isBriefingRequest ? '' : await searchKnowledgeGraph(raw)
+      const kgContext = isBriefingRequest || explicitContext ? '' : await searchKnowledgeGraph(raw)
       await callDashboardStream(
         history as Array<{ role: 'user' | 'assistant'; content: string }>,
         `${strategicSystem(settings.userName)}\n\n${buildAiContext()}${kgContext ? `\n\n${kgContext}` : ''}`,
@@ -717,6 +738,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       setPdfSummary(result)
       logActivity('pdf', `요약: ${result.title || url}`)
       if (hasAiKey) {
+        revealAiPanel()
         const kind = isPdf ? 'PDF 문서' : '웹페이지'
         const userMessage: AIMessage = {
           role: 'user',
@@ -754,17 +776,71 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     }
   }
 
-  function handleAddShortcut(e: React.FormEvent) {
+  async function handleLocalFile(file: File) {
+    if (!settings.mcpEndpoint) {
+      setPdfError('MCP 엔드포인트가 필요합니다.')
+      onNavigate('settings')
+      return
+    }
+
+    setPdfLoading(true)
+    setPdfError('')
+    setPdfSummary(null)
+    setActivePdfUrl('')
+    try {
+      const base = settings.mcpEndpoint.replace(/\/mcp\/?$/, '')
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch(`${base}/summarize-file`, { method: 'POST', body: formData })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || `파일 요약 실패: ${response.status}`)
+      setPdfSummary(result as PdfSummary)
+      setPdfUrl('')
+      logActivity('pdf', `로컬 파일 요약: ${file.name}`)
+    } catch (error) {
+      setPdfError(error instanceof Error ? error.message : '로컬 파일을 요약하지 못했습니다.')
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
+  async function handleAddShortcut(e: React.FormEvent) {
     e.preventDefault()
     const value = shortcutUrl.trim()
     if (!value) return
+    setShortcutLoading(true)
     try {
-      addBookmark(value)
+      let resolvedTitle = shortcutTitle.trim()
+      if (!resolvedTitle && settings.mcpEndpoint) {
+        try {
+          const { callMcpTool } = await import('@/services/mcp')
+          const result = await callMcpTool<PdfSummary>(
+            settings.mcpEndpoint,
+            'web.summarize',
+            { url: value.startsWith('http') ? value : `https://${value}`, summarySentences: 1 },
+            undefined,
+            12000,
+          )
+          resolvedTitle = result.title?.trim() || result.keyPoints?.[0]?.trim().slice(0, 48) || ''
+        } catch {
+          // 접근이 제한된 페이지는 URL의 검색어/마지막 경로를 제목으로 사용한다.
+        }
+      }
+      addBookmark(value, resolvedTitle)
       setShortcutUrl('')
+      setShortcutTitle('')
       setShortcutError('')
     } catch {
       setShortcutError('올바른 URL을 입력해주세요. 예: youtube.com 또는 https://example.com')
+    } finally {
+      setShortcutLoading(false)
     }
+  }
+
+  async function restartServers() {
+    const base = (settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp').replace(/\/mcp\/?$/, '')
+    const response = await fetch(`${base}/restart`, { method: 'POST' })
+    if (!response.ok) throw new Error(`서버 재시작 요청 실패: ${response.status}`)
   }
 
   return (
@@ -783,6 +859,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         onNavigateTodos={() => onNavigate('todos')}
         onNavigateSettings={() => onNavigate('settings')}
         onNavigateAi={() => onNavigate('ai')}
+        onRestartServers={restartServers}
         onToggleAi={() => setShowAi(value => {
           localStorage.setItem('dash-show-ai', String(!value))
           return !value
@@ -887,10 +964,15 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         )}
         {pdfSummary && (
           <button
-            onClick={() => sendAiQuestion('방금 읽은 내용을 쉽게 요약하고, 내가 바로 실행할 수 있는 다음 행동 3가지를 알려줘')}
-            className="px-2 py-1 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700"
+            type="button"
+            onClick={() => sendAiQuestion(
+              '현재 문서의 요약을 바탕으로 핵심 내용과 내가 바로 실행할 수 있는 다음 행동 3가지를 알려줘',
+              pdfContextBlock(pdfSummary),
+            )}
+            disabled={aiLoading}
+            className="px-2 py-1 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700 disabled:opacity-40"
           >
-            AI 해석
+            {aiLoading ? 'AI 답변 중' : 'AI 해석'}
           </button>
         )}
       </Panel>
@@ -961,7 +1043,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         if (panelId === 'shortcuts') return (
         <SortablePanelWrapper key="shortcuts" id="shortcuts" label="바로가기" editMode={editMode}>
       <Panel title="빠른 바로가기" className="!space-y-3">
-        <form onSubmit={handleAddShortcut} className="flex gap-2">
+        <form onSubmit={handleAddShortcut} className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_auto] gap-2 max-sm:grid-cols-[minmax(0,1fr)_auto]">
           <input
             value={shortcutUrl}
             onChange={e => {
@@ -972,12 +1054,19 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             aria-label="바로가기 URL"
             className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400"
           />
+          <input
+            value={shortcutTitle}
+            onChange={e => setShortcutTitle(e.target.value)}
+            placeholder="제목 또는 주제 (선택)"
+            aria-label="바로가기 제목 또는 주제"
+            className="min-w-0 bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-400 max-sm:col-span-2 max-sm:row-start-2"
+          />
           <button
             type="submit"
-            disabled={!shortcutUrl.trim()}
+            disabled={!shortcutUrl.trim() || shortcutLoading}
             className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40"
           >
-            추가
+            {shortcutLoading ? '정보 확인 중…' : '추가'}
           </button>
         </form>
         {shortcutError && <p className="text-xs text-red-500">{shortcutError}</p>}
@@ -1079,13 +1168,18 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
               mcpEndpoint={settings.mcpEndpoint}
               summary={pdfSummary}
               loading={pdfLoading}
+              askLoading={aiLoading}
               error={pdfError}
               onUrlChange={value => {
                 setPdfUrl(value)
                 if (pdfError) setPdfError('')
               }}
               onSubmit={handlePdfSubmit}
-              onAskAi={() => sendAiQuestion('방금 읽은 내용을 쉽게 요약하고, 내가 바로 실행할 수 있는 다음 행동 3가지를 알려줘')}
+              onFileSelect={handleLocalFile}
+              onAskAi={() => pdfSummary && sendAiQuestion(
+                '현재 문서의 요약을 바탕으로 핵심 내용과 내가 바로 실행할 수 있는 다음 행동 3가지를 알려줘',
+                pdfContextBlock(pdfSummary),
+              )}
             />
             <Panel title="최근 노트" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
               {notes.notes.length === 0 ? (
@@ -1143,14 +1237,17 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                     설정 → RSS 피드 URL을 추가하세요.
                   </p>
                 ) : (
-                  <ul className="space-y-0.5 overflow-y-auto" style={{ maxHeight: '150px' }}>
+                  <ul className="space-y-1.5 overflow-y-auto pr-1" style={{ maxHeight: '260px' }}>
                     {rssFiltered.map((item, i) => (
                       <li key={i}>
                         <a href={item.link} target="_blank" rel="noopener noreferrer"
-                          className="flex items-start gap-2 px-1 py-1.5 rounded-lg hover:bg-surface group">
+                          className="block rounded-xl border border-transparent px-2.5 py-2 hover:border-surface-border hover:bg-surface group">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-gray-800 font-medium line-clamp-1 group-hover:text-blue-600">{item.title}</p>
-                            <p className="text-[10px] text-gray-400 mt-0.5">{item.source} · {relativeRssDate(item.date)}</p>
+                            <p className="text-xs text-gray-900 font-semibold leading-5 line-clamp-2 group-hover:text-blue-600">{item.title}</p>
+                            {item.summary && (
+                              <p className="mt-1 text-[11px] leading-4 text-gray-500 line-clamp-2">{item.summary}</p>
+                            )}
+                            <p className="text-[10px] text-gray-400 mt-1.5">{item.source} · {relativeRssDate(item.date)}</p>
                           </div>
                         </a>
                       </li>
@@ -1244,7 +1341,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             >
               <div className="w-0.5 h-12 bg-gray-200 group-hover:bg-gray-400 rounded-full transition-colors" />
             </div>
-            <div className="dashboard-assistant min-w-0 flex flex-col" style={{ width: `${100 - splitPct}%` }}>
+            <div ref={aiPanelRef} className="dashboard-assistant min-w-0 flex flex-col" style={{ width: `${100 - splitPct}%` }}>
               <DashboardAiPanel
                 messages={aiMessages}
                 input={aiInput}
@@ -1448,9 +1545,11 @@ function PdfMcpPanel({
   mcpEndpoint,
   summary,
   loading,
+  askLoading,
   error,
   onUrlChange,
   onSubmit,
+  onFileSelect,
   onAskAi,
 }: {
   pdfUrl: string
@@ -1458,9 +1557,11 @@ function PdfMcpPanel({
   mcpEndpoint: string
   summary: PdfSummary | null
   loading: boolean
+  askLoading: boolean
   error: string
   onUrlChange: (value: string) => void
   onSubmit: (e: React.FormEvent) => void
+  onFileSelect: (file: File) => void
   onAskAi: () => void
 }) {
   return (
@@ -1471,9 +1572,10 @@ function PdfMcpPanel({
           <button
             type="button"
             onClick={onAskAi}
-            className="px-2 py-0.5 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700"
+            disabled={askLoading}
+            className="px-2 py-0.5 rounded bg-gray-900 text-white text-[11px] hover:bg-gray-700 disabled:opacity-40"
           >
-            AI 해석
+            {askLoading ? 'AI 답변 중' : 'AI 해석'}
           </button>
         )}
       </div>
@@ -1492,12 +1594,42 @@ function PdfMcpPanel({
         >
           {loading ? '요약 중' : '요약'}
         </button>
+        <label className={`cursor-pointer shrink-0 px-2.5 py-1.5 rounded-lg border border-surface-border bg-white text-xs font-medium text-gray-700 hover:bg-surface-hover ${loading ? 'pointer-events-none opacity-40' : ''}`}>
+          파일 선택
+          <input
+            type="file"
+            accept=".pdf,.txt,.md,.markdown,.html,.htm,application/pdf,text/plain,text/markdown,text/html"
+            className="sr-only"
+            disabled={loading}
+            onChange={event => {
+              const file = event.target.files?.[0]
+              if (file) onFileSelect(file)
+              event.currentTarget.value = ''
+            }}
+          />
+        </label>
       </form>
       {error && <p className="text-xs text-red-500">{error}</p>}
       {loading && <p className="text-xs text-gray-400">내용을 읽는 중입니다... (완료되면 AI 대화에 표시됩니다)</p>}
       {activePdfUrl && (
         <div className="h-48 overflow-hidden rounded-lg border border-surface-border bg-gray-50">
           <iframe src={`${pdfProxyUrl(mcpEndpoint, activePdfUrl)}#view=FitH`} title="PDF preview" className="h-full w-full border-0" />
+        </div>
+      )}
+      {summary && (
+        <div className="space-y-2 rounded-xl border border-surface-border bg-gray-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-xs font-semibold text-gray-900">{summary.title}</p>
+            <span className="shrink-0 text-[10px] text-gray-400">
+              {summary.pageCount ? `${summary.pagesRead}/${summary.pageCount}쪽` : `${summary.charCount.toLocaleString()}자`}
+            </span>
+          </div>
+          <p className="text-xs leading-5 text-gray-700">{summary.summary}</p>
+          {summary.keyPoints.length > 0 && (
+            <ul className="space-y-1 text-[11px] leading-4 text-gray-500">
+              {summary.keyPoints.slice(0, 3).map((point, index) => <li key={`${index}-${point}`}>• {point}</li>)}
+            </ul>
+          )}
         </div>
       )}
     </section>
