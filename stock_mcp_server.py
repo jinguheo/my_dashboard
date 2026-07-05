@@ -486,6 +486,7 @@ def _fetch_reddit(subreddit, limit=10):
             'comments': d.get('num_comments', 0),
             'date': _dt.utcfromtimestamp(d.get('created_utc', 0)).strftime('%Y-%m-%d'),
             'source': f"r/{subreddit}",
+            'summary': _clean_feed_text(d.get('selftext') or d.get('link_flair_text') or '', 320),
         })
     return items
 
@@ -503,8 +504,10 @@ def _fetch_hf_blog(limit=5):
             link_el = entry.find('atom:link', ns)
             url = link_el.get('href', '') if link_el is not None else ''
             date = (entry.findtext('atom:published', '', ns) or '')[:10]
+            summary = entry.findtext('atom:summary', '', ns) or entry.findtext('atom:content', '', ns)
             items.append({'title': title, 'url': url, 'points': 0,
-                          'comments': 0, 'date': date, 'source': 'HuggingFace Blog'})
+                          'comments': 0, 'date': date, 'source': 'HuggingFace Blog',
+                          'summary': _clean_feed_text(summary, 320)})
         return items
     except Exception:
         return []
@@ -525,6 +528,14 @@ def _fetch_hf_trending(limit=8):
             'comments': m.get('likes', 0),
             'date': (m.get('lastModified') or today)[:10],
             'source': 'HuggingFace Models',
+            'summary': _clean_feed_text(
+                ' · '.join([
+                    f"downloads {m.get('downloads', 0):,}",
+                    f"likes {m.get('likes', 0):,}",
+                    ', '.join((m.get('tags') or [])[:8]),
+                ]),
+                320,
+            ),
         } for m in r.json() if m.get('id')]
     except Exception:
         return []
@@ -541,6 +552,13 @@ def _fetch_hf_papers(limit=8):
         for p in r.json():
             paper = p.get('paper', {})
             pid = paper.get('id', '')
+            summary = (
+                paper.get('summary')
+                or paper.get('abstract')
+                or p.get('summary')
+                or p.get('description')
+                or ''
+            )
             items.append({
                 'title': paper.get('title', ''),
                 'url': f"https://huggingface.co/papers/{pid}",
@@ -548,6 +566,74 @@ def _fetch_hf_papers(limit=8):
                 'comments': 0,
                 'date': (p.get('publishedAt') or '')[:10],
                 'source': 'HuggingFace Papers',
+                'summary': _clean_feed_text(summary, 320),
+            })
+        return items
+    except Exception:
+        return []
+
+def _fetch_github_trending_ai(limit=8):
+    """최근 GitHub에서 화제인 AI/LLM 관련 저장소."""
+    try:
+        since = (_dt.utcnow() - _td(days=30)).strftime('%Y-%m-%d')
+        queries = [
+            f'topic:llm pushed:>={since} stars:>100',
+            f'topic:artificial-intelligence pushed:>={since} stars:>100',
+            f'topic:generative-ai pushed:>={since} stars:>100',
+            f'topic:ai-agent pushed:>={since} stars:>100',
+            f'ai pushed:>={since} stars:>100',
+        ]
+        repos = []
+        seen = set()
+        for query in queries:
+            r = req_lib.get(
+                'https://api.github.com/search/repositories',
+                params={
+                    'q': query,
+                    'sort': 'stars',
+                    'order': 'desc',
+                    'per_page': max(3, min(limit, 10)),
+                },
+                headers={
+                    'Accept': 'application/vnd.github+json',
+                    'User-Agent': 'dashboard/1.0',
+                },
+                timeout=12,
+            )
+            r.raise_for_status()
+            for repo in r.json().get('items', []):
+                full_name = repo.get('full_name') or ''
+                if not full_name or full_name in seen:
+                    continue
+                seen.add(full_name)
+                repos.append(repo)
+
+        items = []
+        for repo in sorted(repos, key=lambda r: r.get('stargazers_count', 0), reverse=True)[:limit]:
+            topics = repo.get('topics') or []
+            language = repo.get('language') or 'unknown'
+            pushed = (repo.get('pushed_at') or repo.get('updated_at') or '')[:10]
+            stars = repo.get('stargazers_count', 0)
+            forks = repo.get('forks_count', 0)
+            description = repo.get('description') or ''
+            summary = _clean_feed_text(
+                ' · '.join([
+                    description,
+                    f"{stars:,} stars",
+                    f"{forks:,} forks",
+                    language,
+                    ', '.join(topics[:8]),
+                ]),
+                320,
+            )
+            items.append({
+                'title': f"[GitHub Trending] {repo.get('full_name', '')}",
+                'url': repo.get('html_url') or '',
+                'points': stars,
+                'comments': forks,
+                'date': pushed,
+                'source': 'GitHub Trending Repos',
+                'summary': summary,
             })
         return items
     except Exception:
@@ -561,6 +647,14 @@ _CODE_KW    = ['github', 'huggingface', 'open.source', 'open source', 'repo', 'r
 def _categorize(item):
     t = (item['title'] + ' ' + item['source']).lower()
     src = item['source']
+    if src in ('BAIR Blog', 'Microsoft Research Blog'):
+        return '논문'
+    if src in ('OpenAI News', 'Google AI Blog'):
+        return 'LLM'
+    if src in ('NVIDIA Technical Blog', 'GitHub AI & ML Blog', 'GitHub Trending Repos'):
+        return 'GitHub/HuggingFace'
+    if src in ('MIT Technology Review AI',):
+        return 'Business'
     if src in ('HuggingFace Blog', 'HuggingFace Models', 'HuggingFace Papers'):
         if src == 'HuggingFace Papers':
             return '논문'
@@ -641,25 +735,93 @@ def fetch_rss_feeds(urls, max_per_feed=8):
             continue
     return items
 
+_AI_RSS_SOURCES = [
+    ('OpenAI News', 'https://openai.com/news/rss.xml'),
+    ('Google AI Blog', 'https://blog.google/technology/ai/rss/'),
+    ('Microsoft Research Blog', 'https://www.microsoft.com/en-us/research/feed/'),
+    ('NVIDIA Technical Blog', 'https://developer.nvidia.com/blog/feed/'),
+    ('BAIR Blog', 'https://bair.berkeley.edu/blog/feed.xml'),
+    ('MIT Technology Review AI', 'https://www.technologyreview.com/topic/artificial-intelligence/feed/'),
+    ('GitHub AI & ML Blog', 'https://github.blog/ai-and-ml/feed/'),
+]
+
+_AI_RELEVANCE_KW = [
+    'ai', 'artificial intelligence', 'machine learning', 'deep learning',
+    'llm', 'language model', 'foundation model', 'generative',
+    'agent', 'agentic', 'neural', 'transformer', 'inference',
+    'training', 'fine-tuning', 'embedding', 'rag', 'gpu', 'nvidia',
+    'robot', 'vision model', 'multimodal',
+]
+
+def _is_ai_relevant_news(item, label):
+    if label in ('OpenAI News', 'Google AI Blog', 'HuggingFace Blog', 'HuggingFace Papers', 'HuggingFace Models', 'BAIR Blog'):
+        return True
+    text = f"{item.get('title', '')} {item.get('summary', '')} {label}".lower()
+    return any(k in text for k in _AI_RELEVANCE_KW)
+
+def _fetch_ai_rss_sources(max_per_feed=4):
+    """실제 RSS 응답이 안정적인 AI/연구/개발 블로그 피드."""
+    items = []
+    for label, url in _AI_RSS_SOURCES:
+        for item in fetch_rss_feeds([url], max_per_feed=max_per_feed):
+            if not _is_ai_relevant_news(item, label):
+                continue
+            items.append({
+                'title': item.get('title', ''),
+                'url': item.get('link') or '',
+                'points': 0,
+                'comments': 0,
+                'date': item.get('date', ''),
+                'source': label,
+                'summary': item.get('summary', ''),
+            })
+    return items
+
+def _news_sort_ts(item):
+    value = item.get('date') or ''
+    try:
+        if len(value) >= 10 and value[4] == '-' and value[7] == '-':
+            return _dt.strptime(value[:10], '%Y-%m-%d').timestamp()
+        return parsedate_to_datetime(value).timestamp()
+    except Exception:
+        return 0
+
+def _has_useful_news_content(item):
+    return bool(
+        (item.get('title') or '').strip()
+        and (item.get('url') or '').strip()
+        and (item.get('summary') or '').strip()
+    )
+
 
 def fetch_ai_news(max_results=25, query=''):
-    """Reddit ML/LLM 커뮤니티 + HuggingFace 블로그 최신 AI 뉴스 (무료, 인증 불필요)"""
+    """AI 뉴스: 안정 RSS + HuggingFace + 일부 커뮤니티를 소스별로 균형 있게 섞는다."""
     items = []
-    for sub in ['MachineLearning', 'LocalLLaMA', 'artificial']:
+    items += _fetch_ai_rss_sources(max_per_feed=4)
+    for sub in ['MachineLearning', 'LocalLLaMA']:
         try:
             items += _fetch_reddit(sub, limit=10)
         except Exception:
             pass
     items += _fetch_hf_blog(limit=5)
-    items += _fetch_hf_papers(limit=8)
-    items += _fetch_hf_trending(limit=8)
-    # 최신순 정렬 + 중복 제거 + 카테고리 분류
+    items += _fetch_hf_papers(limit=10)
+    items += _fetch_hf_trending(limit=6)
+    items += _fetch_github_trending_ai(limit=8)
+    # 최신순 정렬 + 중복 제거 + 카테고리 분류 + 소스별 상한
     seen = set()
     result = []
-    for item in sorted(items, key=lambda x: x['date'], reverse=True):
-        key = item['title'][:50]
+    source_counts = {}
+    max_per_source = 5
+    for item in sorted(items, key=_news_sort_ts, reverse=True):
+        if not _has_useful_news_content(item):
+            continue
+        key = (item.get('title') or '')[:80].lower()
+        source = item.get('source') or 'AI News'
         if key not in seen:
+            if source_counts.get(source, 0) >= max_per_source:
+                continue
             seen.add(key)
+            source_counts[source] = source_counts.get(source, 0) + 1
             item['category'] = _categorize(item)
             result.append(item)
     return result[:max_results]

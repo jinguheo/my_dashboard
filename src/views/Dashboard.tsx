@@ -194,10 +194,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [forecast, setForecast] = useState<WeatherForecast[]>([])
   const [briefing, setBriefing] = useState(() => localStorage.getItem(`briefing-${new Date().toISOString().slice(0, 10)}`) || '')
   const [loadingBriefing, setLoadingBriefing] = useState(false)
-  type NewsItem = { title: string; url: string; points: number; comments: number; date: string; source: string; category?: string }
+  type NewsItem = { title: string; url: string; points: number; comments: number; date: string; source: string; category?: string; summary?: string }
   const [aiNews, setAiNews] = useState<NewsItem[]>([])
   const [loadingNews, setLoadingNews] = useState(false)
-  const NEWS_CATS = ['전체', '논문', 'LLM', 'Business', 'GitHub/HuggingFace', '전반'] as const
+  const aiNewsAutoLoadedEndpoint = useRef('')
+  const NEWS_CATS = ['전체', '논문', 'LLM', 'Business', 'GitHub/HuggingFace'] as const
   const [newsCat, setNewsCat] = useState<string>('전체')
   const [newsError, setNewsError] = useState('')
   const [rssItems, setRssItems] = useState<RssItem[]>([])
@@ -207,12 +208,12 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
   const [searchEngine, setSearchEngine] = useState<string>(settings.searchEngine || 'google')
 
   async function fetchAiNews() {
-    if (!settings.mcpEndpoint) return
+    if (!settings.mcpEndpoint || loadingNews) return
     setLoadingNews(true)
     setNewsError('')
     try {
       const { callMcpTool } = await import('@/services/mcp')
-      const result = await callMcpTool<NewsItem[]>(settings.mcpEndpoint, 'news.ai', { maxResults: 15 })
+      const result = await callMcpTool<NewsItem[]>(settings.mcpEndpoint, 'news.ai', { maxResults: 30 })
       setAiNews(Array.isArray(result) ? result : [])
     } catch (e: any) {
       setNewsError(e.message || '뉴스를 가져오지 못했습니다.')
@@ -220,6 +221,14 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       setLoadingNews(false)
     }
   }
+
+  useEffect(() => {
+    if (!settings.mcpEndpoint) return
+    if (aiNewsAutoLoadedEndpoint.current === settings.mcpEndpoint) return
+    aiNewsAutoLoadedEndpoint.current = settings.mcpEndpoint
+    fetchAiNews()
+  }, [settings.mcpEndpoint])
+
   const SEARCH_ENGINES: Record<string, { label: string; url: string }> = {
     google:     { label: 'Google',     url: 'https://www.google.com/search?q=' },
     naver:      { label: 'Naver',      url: 'https://search.naver.com/search.naver?query=' },
@@ -1289,7 +1298,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           </div>
           {newsError && <p className="text-xs text-red-500 mb-2">{newsError}</p>}
           {aiNews.length > 0 ? (
-            <ul className="space-y-1 overflow-y-auto" style={{ maxHeight: '400px' }}>
+            <ul className="space-y-1.5 overflow-y-auto pr-1" style={{ maxHeight: '520px' }}>
               {aiNews
                 .filter(n => newsCat === '전체' || n.category === newsCat)
                 .map((n, i) => (
@@ -1299,15 +1308,18 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => { logActivity('ai', `AI 뉴스 읽음: ${n.title}`); openExternalUrl(n.url) }}
-                    className="flex items-start gap-2 group hover:bg-surface-hover rounded-lg px-1.5 py-1.5 transition-colors"
+                    className="flex items-start gap-2 group rounded-xl border border-transparent px-2.5 py-2.5 transition-colors hover:border-surface-border hover:bg-surface-hover"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">{n.category || '전반'}</span>
                         <span className="text-[10px] text-gray-300 shrink-0">{n.source}</span>
                       </div>
-                      <p className="text-xs text-gray-800 group-hover:text-blue-600 leading-snug line-clamp-2">{n.title}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">▲{n.points} · 💬{n.comments} · {n.date}</p>
+                      <p className="text-xs font-semibold text-gray-900 group-hover:text-blue-600 leading-5 line-clamp-2">{n.title}</p>
+                      {n.summary && (
+                        <p className="mt-1 text-[11px] leading-4 text-gray-500 line-clamp-2">{n.summary}</p>
+                      )}
+                      <p className="text-[10px] text-gray-400 mt-1.5">▲{n.points} · 💬{n.comments} · {n.date}</p>
                     </div>
                     <span className="text-gray-300 group-hover:text-blue-400 text-xs shrink-0 mt-1">↗</span>
                   </a>
