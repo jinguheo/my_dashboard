@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useJournal } from '@/store/useJournal'
-import type { JournalState } from '@/store/useJournal'
 import type { JournalEntry, JournalAnalysis } from '@/types'
 import { suggestAutoTags, scheduleMidnightAnalysis } from '@/services/journalAnalysis'
 
@@ -23,11 +22,11 @@ function formatDate(iso: string) {
 }
 
 interface Props {
-  journal: JournalState
   sessionKey: string
 }
 
-export default function Journal({ journal, sessionKey }: Props) {
+export default function Journal({ sessionKey }: Props) {
+  const journal = useJournal()
   const { entries, analysis, addEntry, updateEntry, removeEntry, saveAnalysis, recentEntries } = journal
 
   useEffect(() => {

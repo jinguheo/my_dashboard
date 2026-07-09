@@ -2,63 +2,86 @@
 setlocal
 cd /d "D:\MyWork\my-dashboard"
 
+rem Lightweight default: only start the dashboard essentials.
+rem Optional heavy services can be enabled before running this file:
+rem   set START_AVATAR=1
+rem   set START_CLAUDE_BROWSER=1
+
+set "PYTHON_EXE=python"
+if exist ".venv\Scripts\python.exe" set "PYTHON_EXE=.venv\Scripts\python.exe"
+
 netstat -ano | findstr ":8765" | findstr "LISTENING" >nul
-if %ERRORLEVEL%==0 (
-    echo MCP already running
-) else (
-    start "MCP Server" /min "C:\Users\oem\miniconda3\python.exe" stock_mcp_server.py
+if errorlevel 1 (
+    start "MCP Server" /min "%PYTHON_EXE%" stock_mcp_server.py
     echo MCP server started
+) else (
+    echo MCP already running
 )
 
+if /I not "%START_AVATAR%"=="1" goto skip_avatar
+
 netstat -ano | findstr ":8766" | findstr "LISTENING" >nul
-if %ERRORLEVEL%==0 (
-    echo Avatar API already running
-) else (
+if errorlevel 1 (
     start "Avatar API" /min "C:\Users\oem\miniconda3\envs\avatar\python.exe" "D:\MyWork\mental-avatar\api\server.py"
     echo Avatar API started
+) else (
+    echo Avatar API already running
 )
 
 netstat -ano | findstr ":8768" | findstr "LISTENING" >nul
-if %ERRORLEVEL%==0 (
-    echo XTTS Worker already running
-) else (
+if errorlevel 1 (
     start "XTTS Worker" /min "C:\Users\oem\miniconda3\envs\xtts\python.exe" "D:\MyWork\mental-avatar\api\xtts_server.py"
-    echo XTTS Worker started (model loads in ~60s, tts_only falls back to slow path until then)
+    echo XTTS Worker started
+) else (
+    echo XTTS Worker already running
 )
 
 tasklist /FI "WINDOWTITLE eq Avatar Watcher" 2>nul | findstr "python" >nul
-if %ERRORLEVEL%==0 (
-    echo Avatar Watcher already running
-) else (
+if errorlevel 1 (
     start "Avatar Watcher" /min "C:\Users\oem\miniconda3\envs\avatar\python.exe" "D:\MyWork\mental-avatar\watcher\file_watcher.py"
     echo Avatar Watcher started
-)
-
-netstat -ano | findstr ":9222" | findstr "LISTENING" >nul
-if %ERRORLEVEL%==0 (
-    echo Chrome already running with CDP
 ) else (
-    tasklist /FI "IMAGENAME eq chrome.exe" 2>nul | findstr "chrome.exe" >nul
-    if %ERRORLEVEL%==0 (
-        echo Chrome is running but without CDP - bridge may not work
-    ) else (
-        start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --load-extension="D:\MyWork\my-dashboard\chrome-extension" --no-first-run --no-default-browser-check https://claude.ai
-        echo Chrome started with CDP + extension
-    )
-)
-
-netstat -ano | findstr ":5173" | findstr "LISTENING" >nul
-if %ERRORLEVEL%==0 (
-    echo Dashboard Vite already running
-) else (
-    start "Dashboard Vite" /min /d "D:\MyWork\my-dashboard" "C:\Program Files\nodejs\npm.cmd" run dev
-    echo Dashboard Vite started on 5173
+    echo Avatar Watcher already running
 )
 
 netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
-if %ERRORLEVEL%==0 (
-    echo Mental Avatar Vite already running
-) else (
+if errorlevel 1 (
     start "Mental Avatar Vite" /min /d "D:\MyWork\mental-avatar\frontend" "C:\Program Files\nodejs\npm.cmd" run dev
     echo Mental Avatar Vite started on 5174
+) else (
+    echo Mental Avatar Vite already running
+)
+goto after_avatar
+
+:skip_avatar
+echo Mental Avatar services skipped. Set START_AVATAR=1 to enable.
+
+:after_avatar
+if /I not "%START_CLAUDE_BROWSER%"=="1" goto skip_claude_browser
+
+netstat -ano | findstr ":9222" | findstr "LISTENING" >nul
+if not errorlevel 1 (
+    echo Chrome already running with CDP
+    goto after_claude_browser
+)
+
+tasklist /FI "IMAGENAME eq chrome.exe" 2>nul | findstr "chrome.exe" >nul
+if errorlevel 1 (
+    start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --load-extension="D:\MyWork\my-dashboard\chrome-extension" --no-first-run --no-default-browser-check https://claude.ai
+    echo Chrome started with CDP and extension
+) else (
+    echo Chrome is running without CDP. Bridge may not work.
+)
+goto after_claude_browser
+
+:skip_claude_browser
+echo Claude browser bridge skipped. Set START_CLAUDE_BROWSER=1 to enable.
+
+:after_claude_browser
+netstat -ano | findstr ":5173" | findstr "LISTENING" >nul
+if errorlevel 1 (
+    start "Dashboard Vite" /min /d "D:\MyWork\my-dashboard" "C:\Program Files\nodejs\npm.cmd" run dev
+    echo Dashboard Vite started on 5173
+) else (
+    echo Dashboard Vite already running
 )

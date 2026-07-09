@@ -9,6 +9,10 @@ const ROOT = resolve(__dir, '..')
 const VITE_PORT = 5173
 const MCP_PORT = 8765
 const TTS_PORT = 8767
+const START_TTS = process.env.START_TTS === '1'
+const PYTHON_EXE = existsSync(resolve(ROOT, '.venv', 'Scripts', 'python.exe'))
+  ? resolve(ROOT, '.venv', 'Scripts', 'python.exe')
+  : 'python'
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms))
@@ -73,7 +77,7 @@ if (isPortUsed(MCP_PORT)) {
   const serverFile = resolve(ROOT, 'stock_mcp_server.py')
   if (existsSync(serverFile)) {
     console.log('[dev] starting MCP server')
-    spawn('python', [serverFile], {
+    spawn(PYTHON_EXE, [serverFile], {
       cwd: ROOT,
       detached: true,
       stdio: 'ignore',
@@ -92,13 +96,15 @@ if (isPortUsed(MCP_PORT)) {
   }
 }
 
-if (isPortUsed(TTS_PORT)) {
+if (!START_TTS) {
+  console.log('[dev] TTS server skipped (set START_TTS=1 to enable)')
+} else if (isPortUsed(TTS_PORT)) {
   console.log(`[dev] TTS server already running (${TTS_PORT})`)
 } else {
   const ttsFile = resolve(ROOT, 'tts_server.py')
   if (existsSync(ttsFile)) {
     console.log('[dev] starting TTS server')
-    spawn('python', [ttsFile], {
+    spawn(PYTHON_EXE, [ttsFile], {
       cwd: ROOT,
       detached: true,
       stdio: 'ignore',
