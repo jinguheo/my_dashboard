@@ -18,11 +18,10 @@ async function isReachable(url: string) {
 }
 
 export default function MentalAvatarFrame() {
-  const [status, setStatus] = useState<Status>('checking')
-  const [loadFrame, setLoadFrame] = useState(false)
+  const [status, setStatus] = useState<Status>('ready')
 
-  async function checkStatus() {
-    setStatus('checking')
+  async function checkStatus(showChecking = true) {
+    if (showChecking) setStatus('checking')
     const [frontendOk, apiOk] = await Promise.all([
       isReachable(MENTAL_AVATAR_URL),
       isReachable(`${MENTAL_AVATAR_API}/health`),
@@ -33,10 +32,10 @@ export default function MentalAvatarFrame() {
   }
 
   useEffect(() => {
-    checkStatus()
+    checkStatus(false)
   }, [])
 
-  if (status === 'ready' && loadFrame) {
+  if (status === 'ready') {
     return (
       <iframe
         src={MENTAL_AVATAR_URL}
@@ -53,7 +52,7 @@ export default function MentalAvatarFrame() {
         <div className="mb-4">
           <h1 className="text-lg font-semibold text-gray-900">Mental Avatar</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Heavy 3D and graph modules load only after you open the embedded app.
+            Local services are checked before opening the embedded app.
           </p>
         </div>
 
@@ -65,26 +64,15 @@ export default function MentalAvatarFrame() {
           {status === 'api-missing' && (
             <p className="text-amber-700">Frontend is running, but the API on port 8766 is not ready.</p>
           )}
-          {status === 'ready' && (
-            <p className="text-green-700">Frontend and API are ready.</p>
-          )}
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={checkStatus}
+            onClick={() => checkStatus()}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Recheck
-          </button>
-          <button
-            type="button"
-            onClick={() => setLoadFrame(true)}
-            disabled={status !== 'ready'}
-            className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300"
-          >
-            Open Embedded App
           </button>
         </div>
 
