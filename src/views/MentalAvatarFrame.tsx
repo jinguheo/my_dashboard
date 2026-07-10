@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const MENTAL_AVATAR_URL = 'http://localhost:5174'
+const MENTAL_AVATAR_URL = 'http://localhost:5174/'
 const MENTAL_AVATAR_API = 'http://127.0.0.1:8766'
 
 type Status = 'checking' | 'ready' | 'frontend-missing' | 'api-missing'
@@ -89,7 +89,7 @@ export default function MentalAvatarFrame() {
         </div>
 
         <p className="mt-4 text-xs leading-5 text-gray-400">
-          To start the optional avatar stack, run `set START_AVATAR=1` before `start_dashboard.bat`.
+          Mental Avatar runs at http://localhost:5174/. Optional heavy extras use `set START_AVATAR_EXTRAS=1`.
         </p>
       </div>
     </div>

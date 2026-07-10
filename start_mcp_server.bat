@@ -3,6 +3,8 @@ setlocal
 
 cd /d "D:\MyWork\my-dashboard"
 
+call "%~dp0start_mental_avatar_api.bat"
+
 netstat -ano | findstr /R /C:":8765 .*LISTENING" >nul
 if %ERRORLEVEL%==0 exit /b 0
 

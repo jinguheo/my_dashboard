@@ -292,6 +292,17 @@ export default function Preference() {
 
   const inputCls = "w-full border border-surface-border rounded-xl px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-400 bg-white"
   const labelCls = "text-xs font-medium text-gray-600"
+  const autoTraitEntries = TRAIT_DEFS.map(({ key, label }) => ({
+    key,
+    label,
+    value: profile[`trait_${key}_auto`],
+  })).filter(({ value }) => value !== undefined && value !== '')
+  const hasSavedAutoResult = Boolean(
+    profile.mbti_auto ||
+    profile.personality_auto ||
+    profile.preference_auto ||
+    autoTraitEntries.length > 0
+  )
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -370,6 +381,7 @@ export default function Preference() {
 
           {result?.ready && result.suggestion && (
             <div className="p-3 bg-gray-50 border border-surface-border rounded-xl space-y-2 text-xs text-gray-600">
+              <p className="font-semibold text-gray-800">성향 자동 분석 결과</p>
               <p className="text-gray-400">최근 대화 {result.count}개 + 지식그래프 토픽 분석 결과</p>
               <ul className="space-y-1">
                 {result.suggestion.mbti_auto && <li>MBTI: <span className="font-medium text-gray-900">{result.suggestion.mbti_auto}</span></li>}
@@ -391,13 +403,42 @@ export default function Preference() {
             </div>
           )}
 
+          {!result?.ready && (
+            <div className="p-3 bg-gray-50 border border-surface-border rounded-xl space-y-2 text-xs text-gray-600">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold text-gray-800">성향 자동 분석 결과</p>
+                {profile.preference_auto_at && (
+                  <span className="text-[11px] text-gray-400">{profile.preference_auto_at}</span>
+                )}
+              </div>
+              {hasSavedAutoResult ? (
+                <>
+                  <ul className="space-y-1">
+                    {profile.mbti_auto && <li>MBTI: <span className="font-medium text-gray-900">{profile.mbti_auto}</span></li>}
+                    {profile.personality_auto && <li>성격: <span className="font-medium text-gray-900">{profile.personality_auto}</span></li>}
+                    {profile.preference_auto && <li>선호도: <span className="font-medium text-gray-900">{profile.preference_auto}</span></li>}
+                    {autoTraitEntries.map(({ key, label, value }) => (
+                      <li key={key}>{label}: <span className="font-medium text-gray-900">{value}점</span></li>
+                    ))}
+                  </ul>
+                  {profile.mbti_auto_reasoning && (
+                    <p className="text-gray-400 leading-relaxed">MBTI 판단 근거는 오른쪽 비교 카드에서 축별로 확인할 수 있습니다.</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-400 leading-relaxed">
+                  아직 저장된 자동 분석 결과가 없습니다. 지금 자동측정을 실행하거나 mental-avatar가 실행된 뒤 자동측정 주기에 맞춰 결과가 표시됩니다.
+                </p>
+              )}
+            </div>
+          )}
+
           {profile.preference_auto_at && (
             <p className="text-xs text-gray-400">마지막 자동측정: {profile.preference_auto_at}</p>
           )}
         </div>
 
-        {radar && (
-          <div className="flex-1 min-w-[340px] max-w-md space-y-5 sticky top-6">
+        <div className="flex-1 min-w-[340px] max-w-md space-y-5 sticky top-6">
 
             {/* Big Five 카드 */}
             <div className="bg-white border border-surface-border rounded-2xl shadow-sm overflow-hidden">
@@ -406,12 +447,20 @@ export default function Preference() {
                 <p className="text-[11px] text-gray-400 mt-0.5">직접입력과 AI 자동측정을 한눈에</p>
               </div>
               <div className="p-5">
-                <RadarChart data={radar} size={300} />
-                <div className="flex justify-center gap-5 text-xs mt-1 mb-4">
-                  <span className="flex items-center gap-1.5 text-indigo-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" />직접입력</span>
-                  <span className="flex items-center gap-1.5 text-orange-500 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" />자동측정</span>
-                </div>
-                <DiffList data={radar} />
+                {radar ? (
+                  <>
+                    <RadarChart data={radar} size={300} />
+                    <div className="flex justify-center gap-5 text-xs mt-1 mb-4">
+                      <span className="flex items-center gap-1.5 text-indigo-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" />직접입력</span>
+                      <span className="flex items-center gap-1.5 text-orange-500 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" />자동측정</span>
+                    </div>
+                    <DiffList data={radar} />
+                  </>
+                ) : (
+                  <div className="py-10 text-center text-xs text-gray-400">
+                    비교 데이터를 불러오는 중입니다. mental-avatar가 실행 중이면 잠시 후 자동으로 표시됩니다.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -423,52 +472,59 @@ export default function Preference() {
                   <p className="text-[11px] text-gray-400 mt-0.5">4축(E-I·S-N·T-F·J-P) 기준</p>
                 </div>
                 <div className="flex gap-1.5 text-xs font-semibold">
-                  <span className="px-2 py-1 rounded-lg bg-indigo-100 text-indigo-700">{radar.mbti.manual_label || '미입력'}</span>
-                  <span className="px-2 py-1 rounded-lg bg-orange-100 text-orange-600">{radar.mbti.auto_label || '미측정'}</span>
+                  <span className="px-2 py-1 rounded-lg bg-indigo-100 text-indigo-700">{radar?.mbti.manual_label || profile.mbti_manual || '미입력'}</span>
+                  <span className="px-2 py-1 rounded-lg bg-orange-100 text-orange-600">{radar?.mbti.auto_label || profile.mbti_auto || '미측정'}</span>
                 </div>
               </div>
               <div className="p-5">
-                <RadarChart data={radar.mbti} size={260} floor
-                  outerLabels={['E', 'N', 'T', 'J']}
-                  innerLabels={['I', 'S', 'F', 'P']} />
-                <div className="flex justify-center gap-5 text-xs mt-1 mb-4">
-                  <span className="flex items-center gap-1.5 text-indigo-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" />직접입력</span>
-                  <span className="flex items-center gap-1.5 text-orange-500 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" />자동측정</span>
-                </div>
-                <MbtiDiffList data={radar.mbti} />
+                {radar ? (
+                  <>
+                    <RadarChart data={radar.mbti} size={260} floor
+                      outerLabels={['E', 'N', 'T', 'J']}
+                      innerLabels={['I', 'S', 'F', 'P']} />
+                    <div className="flex justify-center gap-5 text-xs mt-1 mb-4">
+                      <span className="flex items-center gap-1.5 text-indigo-600 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" />직접입력</span>
+                      <span className="flex items-center gap-1.5 text-orange-500 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" />자동측정</span>
+                    </div>
+                    <MbtiDiffList data={radar.mbti} />
 
-                {radar.mbti.evidence.some(Boolean) && (
-                  <div className="mt-4 pt-4 border-t border-surface-border space-y-2.5">
-                    <p className="text-xs font-medium text-gray-600">AI는 이렇게 판단했습니다 (판별 기준 대비 근거)</p>
-                    {radar.mbti.axes.map((label, i) => {
-                      const ev = radar.mbti.evidence[i]
-                      if (!ev) return null
-                      const conf = ev.confidence ?? null
-                      const confTone = conf === null ? 'bg-gray-100 text-gray-500'
-                        : conf >= 70 ? 'bg-emerald-100 text-emerald-700'
-                        : conf >= 40 ? 'bg-amber-100 text-amber-700'
-                        : 'bg-red-100 text-red-600'
-                      return (
-                        <div key={label} className="rounded-xl bg-gray-50 border border-surface-border p-3 space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-gray-700">{label} → <span className="text-orange-600">{ev.letter}</span></span>
-                            {conf !== null && (
-                              <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${confTone}`}>확신도 {conf}%</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-gray-400 leading-snug">{radar.mbti.criteria[i]}</p>
-                          {ev.evidence && (
-                            <p className="text-xs text-gray-700 leading-snug">"{ev.evidence}"</p>
-                          )}
-                        </div>
-                      )
-                    })}
+                    {radar.mbti.evidence.some(Boolean) && (
+                      <div className="mt-4 pt-4 border-t border-surface-border space-y-2.5">
+                        <p className="text-xs font-medium text-gray-600">AI는 이렇게 판단했습니다 (판별 기준 대비 근거)</p>
+                        {radar.mbti.axes.map((label, i) => {
+                          const ev = radar.mbti.evidence[i]
+                          if (!ev) return null
+                          const conf = ev.confidence ?? null
+                          const confTone = conf === null ? 'bg-gray-100 text-gray-500'
+                            : conf >= 70 ? 'bg-emerald-100 text-emerald-700'
+                            : conf >= 40 ? 'bg-amber-100 text-amber-700'
+                            : 'bg-red-100 text-red-600'
+                          return (
+                            <div key={label} className="rounded-xl bg-gray-50 border border-surface-border p-3 space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-700">{label} → <span className="text-orange-600">{ev.letter}</span></span>
+                                {conf !== null && (
+                                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${confTone}`}>확신도 {conf}%</span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-gray-400 leading-snug">{radar.mbti.criteria[i]}</p>
+                              {ev.evidence && (
+                                <p className="text-xs text-gray-700 leading-snug">"{ev.evidence}"</p>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="py-10 text-center text-xs text-gray-400">
+                    MBTI 분석 결과 비교 데이터를 불러오는 중입니다.
                   </div>
                 )}
               </div>
             </div>
           </div>
-        )}
       </div>
     </div>
   )

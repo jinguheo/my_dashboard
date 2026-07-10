@@ -4,7 +4,7 @@ cd /d "D:\MyWork\my-dashboard"
 
 rem Lightweight default: only start the dashboard essentials.
 rem Optional heavy services can be enabled before running this file:
-rem   set START_AVATAR=1
+rem   set START_AVATAR_EXTRAS=1
 rem   set START_CLAUDE_BROWSER=1
 
 set "PYTHON_EXE=python"
@@ -18,15 +18,17 @@ if errorlevel 1 (
     echo MCP already running
 )
 
-if /I not "%START_AVATAR%"=="1" goto skip_avatar
+call "%~dp0start_mental_avatar_api.bat"
 
-netstat -ano | findstr ":8766" | findstr "LISTENING" >nul
+netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
 if errorlevel 1 (
-    start "Avatar API" /min "C:\Users\oem\miniconda3\envs\avatar\python.exe" "D:\MyWork\mental-avatar\api\server.py"
-    echo Avatar API started
+    start "Mental Avatar Vite" /min /d "D:\MyWork\mental-avatar\frontend" "C:\Program Files\nodejs\npm.cmd" run dev
+    echo Mental Avatar frontend started on 5174
 ) else (
-    echo Avatar API already running
+    echo Mental Avatar frontend already running
 )
+
+if /I not "%START_AVATAR_EXTRAS%"=="1" goto skip_avatar
 
 netstat -ano | findstr ":8768" | findstr "LISTENING" >nul
 if errorlevel 1 (
@@ -44,17 +46,10 @@ if errorlevel 1 (
     echo Avatar Watcher already running
 )
 
-netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
-if errorlevel 1 (
-    start "Mental Avatar Vite" /min /d "D:\MyWork\mental-avatar\frontend" "C:\Program Files\nodejs\npm.cmd" run dev
-    echo Mental Avatar Vite started on 5174
-) else (
-    echo Mental Avatar Vite already running
-)
 goto after_avatar
 
 :skip_avatar
-echo Mental Avatar services skipped. Set START_AVATAR=1 to enable.
+echo Mental Avatar extras skipped. Set START_AVATAR_EXTRAS=1 to enable.
 
 :after_avatar
 if /I not "%START_CLAUDE_BROWSER%"=="1" goto skip_claude_browser

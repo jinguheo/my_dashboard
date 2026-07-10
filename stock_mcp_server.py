@@ -2159,8 +2159,10 @@ def restart_servers():
     ps_cmd = (
         "Start-Sleep -Seconds 1; "
         "$p8765 = (netstat -ano | Select-String ':8765.*LISTENING' | ForEach-Object { $_.ToString().Trim().Split()[-1] } | Select-Object -First 1); "
+        "$p8766 = (netstat -ano | Select-String ':8766.*LISTENING' | ForEach-Object { $_.ToString().Trim().Split()[-1] } | Select-Object -First 1); "
         "$p5173 = (netstat -ano | Select-String ':5173.*LISTENING' | ForEach-Object { $_.ToString().Trim().Split()[-1] } | Select-Object -First 1); "
         "if ($p8765) { Stop-Process -Id ([int]$p8765) -Force -ErrorAction SilentlyContinue }; "
+        "if ($p8766) { Stop-Process -Id ([int]$p8766) -Force -ErrorAction SilentlyContinue }; "
         "if ($p5173) { Stop-Process -Id ([int]$p5173) -Force -ErrorAction SilentlyContinue }; "
         "Start-Sleep -Seconds 1; "
         "Start-Process -FilePath 'D:\\MyWork\\my-dashboard\\start_dashboard.bat' -WindowStyle Hidden"

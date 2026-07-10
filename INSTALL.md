@@ -72,8 +72,8 @@ Default startup is lightweight.
 | Vite dashboard | 5173 | Yes | React dashboard UI |
 | MCP server | 8765 | Yes | Stocks, weather, RSS, AI news, PDF/web/local file summary |
 | TTS helper | 8767 | No | Optional Windows SAPI TTS helper |
-| Mental Avatar API | 8766 | No | Optional separate `mental-avatar` project |
-| Mental Avatar frontend | 5174 | No | Optional embedded avatar app |
+| Mental Avatar API | 8766 | Yes | Separate `mental-avatar` project API |
+| Mental Avatar frontend | 5174 | Yes | Embedded avatar app at `http://localhost:5174/` |
 
 ## 5. Optional Startup Modes
 
@@ -84,12 +84,15 @@ set START_TTS=1
 npm run dev
 ```
 
-Start optional Mental Avatar stack from `start_dashboard.bat`:
+Start optional Mental Avatar extras from `start_dashboard.bat`:
 
 ```bat
-set START_AVATAR=1
+set START_AVATAR_EXTRAS=1
 start_dashboard.bat
 ```
+
+The Mental Avatar API on port 8766 and frontend on port 5174 are started by default when using `start_dashboard.bat`.
+`START_AVATAR_EXTRAS=1` additionally starts heavier extras such as the XTTS worker and watcher.
 
 Start optional Claude browser bridge:
 
@@ -98,7 +101,7 @@ set START_CLAUDE_BROWSER=1
 start_dashboard.bat
 ```
 
-The Mental Avatar stack is a separate project and must exist at `D:\MyWork\mental-avatar` for the current helper script to start it automatically.
+The Mental Avatar project must exist at `D:\MyWork\mental-avatar` for the current helper script to start its API automatically.
 
 ## 6. Verify Installation
 
@@ -144,6 +147,7 @@ Port already in use:
 ```bat
 netstat -ano | findstr ":5173"
 netstat -ano | findstr ":8765"
+netstat -ano | findstr ":8766"
 ```
 
 Then stop the listed PID if it is an old dashboard process:
