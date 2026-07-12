@@ -20,6 +20,12 @@ if errorlevel 1 (
 
 call "%~dp0start_mental_avatar_api.bat"
 
+rem Preload XTTS on every dashboard restart so the first TTS is ready sooner.
+powershell -NoProfile -WindowStyle Hidden -Command "$ready=$false; for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/health' -TimeoutSec 2; if ($r.StatusCode -eq 200) { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/avatar/xtts/ensure' -Method Post -TimeoutSec 20 | Out-Null; $ready=$true; break } } catch { Start-Sleep -Seconds 2 } }; if ($ready) { Write-Output 'XTTS warm-up triggered' } else { Write-Output 'XTTS warm-up skipped (API not ready)' }"
+
+rem Preload STT as well so first speech recognition starts faster.
+powershell -NoProfile -WindowStyle Hidden -Command "$ready=$false; for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/health' -TimeoutSec 2; if ($r.StatusCode -eq 200) { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/stt/warmup' -Method Post -TimeoutSec 120 | Out-Null; $ready=$true; break } } catch { Start-Sleep -Seconds 2 } }; if ($ready) { Write-Output 'STT warm-up triggered' } else { Write-Output 'STT warm-up skipped (API not ready)' }"
+
 netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
 if errorlevel 1 (
     start "Mental Avatar Vite" /min /d "D:\MyWork\mental-avatar\frontend" "C:\Program Files\nodejs\npm.cmd" run dev

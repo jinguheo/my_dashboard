@@ -30,3 +30,8 @@ final-dashboard.png
 *.png
 test_imap.py
 vite-server.log
+
+# 툴 설정 / 임시·생성물 (추적 제외)
+.claude/
+graphify-out/
+tmp_korean_lipsync_*
