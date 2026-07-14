@@ -515,6 +515,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         setBriefing(result)
       })
       localStorage.setItem(`briefing-${new Date().toISOString().slice(0, 10)}`, result)
+      window.dispatchEvent(new CustomEvent('dashboard:briefing-updated', { detail: result }))
       logActivity('briefing', 'AI 브리핑 생성')
     } catch (e: any) {
       const errMsg = e?.error?.message || e?.message || String(e)
@@ -850,6 +851,33 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
     const base = (settings.mcpEndpoint || 'http://127.0.0.1:8765/mcp').replace(/\/mcp\/?$/, '')
     const response = await fetch(`${base}/restart`, { method: 'POST' })
     if (!response.ok) throw new Error(`서버 재시작 요청 실패: ${response.status}`)
+    await waitForRestartHealth(base)
+  }
+
+  async function waitForRestartHealth(base: string) {
+    await new Promise(resolve => window.setTimeout(resolve, 3000))
+
+    const checks = [
+      { name: 'MCP', url: `${base}/health` },
+      { name: 'Dashboard', url: 'http://localhost:5173/' },
+      { name: 'Mental Avatar API', url: 'http://127.0.0.1:8766/health' },
+      { name: 'Mental Avatar Frontend', url: 'http://localhost:5174/' },
+    ]
+
+    for (const check of checks) {
+      let ready = false
+      for (let i = 0; i < 24; i++) {
+        try {
+          const r = await fetch(check.url, { cache: 'no-store', signal: AbortSignal.timeout(2500) })
+          if (r.ok) {
+            ready = true
+            break
+          }
+        } catch {}
+        await new Promise(resolve => window.setTimeout(resolve, 1500))
+      }
+      if (!ready) throw new Error(`${check.name} 재시작 확인 실패`)
+    }
   }
 
   return (

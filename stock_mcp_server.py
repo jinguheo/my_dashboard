@@ -2153,6 +2153,11 @@ def avatar_tts_only():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok', 'port': 8765})
+
+
 @app.route('/restart', methods=['POST'])
 def restart_servers():
     import subprocess

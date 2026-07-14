@@ -1,41 +1,21 @@
-import { useState, useRef, useEffect } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
-import { markdown } from '@codemirror/lang-markdown'
-import { EditorView } from '@codemirror/view'
-import { EditorSelection } from '@codemirror/state'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import DOMPurify from 'dompurify'
-import TurndownService from 'turndown'
+import { lazy, Suspense, useState, useRef, useEffect } from 'react'
 import type { NoteState } from '@/store/useNotes'
 
-const theme = EditorView.theme({
-  '&': { background: 'transparent', color: '#111827' },
-  '.cm-editor': { background: 'transparent' },
-  '.cm-scroller': { fontFamily: 'inherit', lineHeight: '1.7' },
-  '.cm-content': { caretColor: '#111827', padding: '8px 0' },
-  '.cm-line': { padding: '0 4px' },
-  '.cm-cursor': { borderLeftColor: '#111827' },
-  '.cm-activeLine': { background: 'rgba(0,0,0,0.03)' },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-selectionBackground, ::selection': { background: 'rgba(0,0,0,0.08) !important' },
-})
+const MarkdownEditor = lazy(() => import('@/components/notes/MarkdownEditor'))
+const MarkdownPreview = lazy(() => import('@/components/notes/MarkdownPreview'))
 
-const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
-td.addRule('table', {
-  filter: ['table'],
-  replacement: (_: string, node: Node) => {
-    const el = node as HTMLTableElement
-    const rows = Array.from(el.querySelectorAll('tr'))
-    if (!rows.length) return ''
-    const toMd = (row: Element) =>
-      '| ' + Array.from(row.querySelectorAll('th,td')).map(c => c.textContent?.trim() ?? '').join(' | ') + ' |'
-    const header = toMd(rows[0])
-    const sep = '| ' + Array.from(rows[0].querySelectorAll('th,td')).map(() => '---').join(' | ') + ' |'
-    const body = rows.slice(1).map(toMd).join('\n')
-    return '\n\n' + [header, sep, body].filter(Boolean).join('\n') + '\n\n'
-  },
-})
+const theme = null
+const remarkGfm = null
+function markdown() { return null }
+const EditorSelection = { cursor: (pos: number) => pos }
+
+function ReactMarkdown({ children }: any) {
+  return (
+    <Suspense fallback={<p className="text-sm text-gray-400">미리보기를 불러오는 중...</p>}>
+      <MarkdownPreview content={children || ''} />
+    </Suspense>
+  )
+}
 
 const HTML_KEY = (id: string) => `dash-note-html-${id}`
 
@@ -173,6 +153,14 @@ export default function Notes({ notes: noteState }: Props) {
   const noteStateRef = useRef(noteState)
   const pendingCursorRef = useRef<number | null>(null)
 
+  function CodeMirror({ value, onChange }: any) {
+    return (
+      <Suspense fallback={<div className="text-sm text-gray-400">에디터를 불러오는 중...</div>}>
+        <MarkdownEditor value={value} onChange={onChange} pendingCursorRef={pendingCursorRef} />
+      </Suspense>
+    )
+  }
+
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { noteStateRef.current = noteState }, [noteState])
 
@@ -188,7 +176,7 @@ export default function Notes({ notes: noteState }: Props) {
 
   // document 캡처 단계에서 paste 가로채기
   useEffect(() => {
-    function onPaste(e: ClipboardEvent) {
+    async function onPaste(e: ClipboardEvent) {
       const wrap = editorWrapRef.current
       if (!wrap) return
       if (!wrap.contains(e.target as Node)) return
@@ -198,6 +186,26 @@ export default function Notes({ notes: noteState }: Props) {
 
       e.stopImmediatePropagation()
       e.preventDefault()
+
+      const [{ default: DOMPurify }, { default: TurndownService }] = await Promise.all([
+        import('dompurify'),
+        import('turndown'),
+      ])
+      const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+      td.addRule('table', {
+        filter: ['table'],
+        replacement: (_: string, node: Node) => {
+          const el = node as HTMLTableElement
+          const rows = Array.from(el.querySelectorAll('tr'))
+          if (!rows.length) return ''
+          const toMd = (row: Element) =>
+            '| ' + Array.from(row.querySelectorAll('th,td')).map(c => c.textContent?.trim() ?? '').join(' | ') + ' |'
+          const header = toMd(rows[0])
+          const sep = '| ' + Array.from(rows[0].querySelectorAll('th,td')).map(() => '---').join(' | ') + ' |'
+          const body = rows.slice(1).map(toMd).join('\n')
+          return '\n\n' + [header, sep, body].filter(Boolean).join('\n') + '\n\n'
+        },
+      })
 
       const cleanHtml = DOMPurify.sanitize(rawHtml, { FORBID_TAGS: ['style', 'script'] })
       const mdText = td.turndown(cleanHtml)
@@ -397,11 +405,11 @@ export default function Notes({ notes: noteState }: Props) {
               >
                 <CodeMirror
                   value={activeNote.content}
-                  onChange={val => {
+                  onChange={(val: string) => {
                     clearHtml(activeNote.id) // 직접 편집 시 HTML 캐시 제거
                     noteState.update(activeNote.id, { content: val })
                   }}
-                  onCreateEditor={view => {
+                  onCreateEditor={(view: any) => {
                     const pos = pendingCursorRef.current
                     if (pos !== null) {
                       const clamped = Math.max(0, Math.min(pos, view.state.doc.length))

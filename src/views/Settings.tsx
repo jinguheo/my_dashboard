@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import type { CalendarAccount, ChatConnection, ConnectionAuth, ConnectionAuthMode, MailAccount, Settings } from '@/types'
 import { listMcpTools } from '@/services/mcp'
 import { fetchApiKeyViaLogin } from '@/services/apiKeyLogin'
@@ -931,7 +931,7 @@ function ClaudeWebLoginBlock({
             <li>Chrome 주소창 → <code className="bg-blue-100 px-1 rounded">chrome://extensions</code></li>
             <li>우측 상단 <b>개발자 모드</b> 켜기</li>
             <li><b>압축해제된 확장 프로그램 로드</b> 클릭</li>
-            <li>폴더 선택: <code className="bg-blue-100 px-1 rounded">D:\MyWork\my-dashboard\chrome-extension</code></li>
+            <li>폴더 선택: <code className="bg-blue-100 px-1 rounded">현재 my-dashboard 폴더\chrome-extension</code></li>
             <li>Claude.ai에 로그인된 상태 유지 → 자동 연결</li>
           </ol>
         </div>
@@ -948,7 +948,7 @@ function ClaudeWebLoginBlock({
           <li>Chrome 주소창 → <code className="bg-blue-100 px-1 rounded">chrome://extensions</code></li>
           <li>우측 상단 <b>개발자 모드</b> 켜기</li>
           <li><b>압축해제된 확장 프로그램 로드</b> 클릭</li>
-          <li>폴더: <code className="bg-blue-100 px-1 rounded">D:\MyWork\my-dashboard\chrome-extension</code></li>
+          <li>폴더: <code className="bg-blue-100 px-1 rounded">현재 my-dashboard 폴더\chrome-extension</code></li>
           <li>Claude.ai 탭에 로그인 유지 → 자동 연결</li>
         </ol>
       </div>
@@ -1184,51 +1184,110 @@ const BACKUP_KEYS = [
   'dashboard-layout',
   'dash-panel-order',
   'mental-avatar-3d-chat',
+  'dashboard-ai-chat',
+  'dash-show-ai',
+  'dash-split-pct',
+  'wizard-skipped',
 ]
+
+const BACKUP_PREFIXES = [
+  'dash-dailylog-',
+  'dash-snapshot-',
+  'dash-activity-',
+  'dash-note-html-',
+  'briefing-',
+  'gmail-token-',
+  'gmail-token-expiry-',
+  'gcal-token-',
+  'gcal-token-expiry-',
+  'poll-mail-',
+  'poll-chat-',
+]
+
+function parseLocalStorageValue(raw: string): unknown {
+  try { return JSON.parse(raw) } catch { return raw }
+}
+
+function serializeLocalStorageValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function shouldBackupLocalStorageKey(key: string) {
+  return BACKUP_KEYS.includes(key) || BACKUP_PREFIXES.some(prefix => key.startsWith(prefix))
+}
+
+function collectBackupLocalStorage() {
+  const local: Record<string, unknown> = {}
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key || !shouldBackupLocalStorageKey(key)) continue
+    const raw = localStorage.getItem(key)
+    if (raw !== null) local[key] = parseLocalStorageValue(raw)
+  }
+  return local
+}
+
+function makeRestoreRollback(keys: string[]) {
+  const rollback: Record<string, string | null> = {}
+  for (const key of keys) rollback[key] = localStorage.getItem(key)
+  localStorage.setItem(`dash-restore-rollback-${new Date().toISOString()}`, JSON.stringify(rollback))
+}
+
+function listRestoreRollbackKeys() {
+  const keys: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key?.startsWith('dash-restore-rollback-')) keys.push(key)
+  }
+  return keys.sort((a, b) => b.localeCompare(a))
+}
+
+function restoreRollback(key: string) {
+  const raw = localStorage.getItem(key)
+  if (!raw) return 0
+  const snapshot: Record<string, string | null> = JSON.parse(raw)
+  const keys = Object.keys(snapshot)
+  for (const itemKey of keys) {
+    const value = snapshot[itemKey]
+    if (value === null) localStorage.removeItem(itemKey)
+    else localStorage.setItem(itemKey, value)
+  }
+  return keys.length
+}
 
 function BackupRestoreSection() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
   const [msg, setMsg] = useState('')
   const [restoreMsg, setRestoreMsg] = useState('')
+  const [rollbackKeys, setRollbackKeys] = useState<string[]>(() => listRestoreRollbackKeys())
 
   async function handleExport() {
     setStatus('loading')
     setMsg('')
     try {
-      const local: Record<string, unknown> = {}
-
-      // 고정 키
-      for (const key of BACKUP_KEYS) {
-        const raw = localStorage.getItem(key)
-        if (raw !== null) {
-          try { local[key] = JSON.parse(raw) } catch { local[key] = raw }
-        }
-      }
-
-      // dash-dailylog-YYYY-MM-DD 패턴 키 전부
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i)!
-        if (k.startsWith('dash-dailylog-')) {
-          const raw = localStorage.getItem(k)
-          if (raw !== null) {
-            try { local[k] = JSON.parse(raw) } catch { local[k] = raw }
-          }
-        }
-      }
-
-      // KG 서버 데이터 (선택적)
+      const local = collectBackupLocalStorage()
       let kg: unknown = null
+      let kgStatus: 'included' | 'unavailable' | 'failed' = 'unavailable'
       const endpoint = 'http://127.0.0.1:8766'
       try {
         const r = await fetch(`${endpoint}/backup`, { signal: AbortSignal.timeout(3000) })
-        if (r.ok) kg = await r.json()
-      } catch { /* 서버 없으면 건너뜀 */ }
+        if (r.ok) {
+          kg = await r.json()
+          kgStatus = 'included'
+        } else {
+          kgStatus = 'failed'
+        }
+      } catch {
+        kgStatus = 'unavailable'
+      }
 
       const payload = {
-        version: '1.0',
+        version: '1.1',
         exportedAt: new Date().toISOString(),
+        includedPrefixes: BACKUP_PREFIXES,
         localStorage: local,
         kg,
+        kgStatus,
       }
 
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
@@ -1240,7 +1299,7 @@ function BackupRestoreSection() {
       URL.revokeObjectURL(url)
 
       setStatus('ok')
-      setMsg(`백업 완료 — localStorage ${Object.keys(local).length}개 키${kg ? ' + KG 데이터' : ''}`)
+      setMsg(`백업 완료: localStorage ${Object.keys(local).length}개, KG ${kgStatus === 'included' ? '포함' : '미포함'}`)
     } catch (e: any) {
       setStatus('error')
       setMsg(e.message || '백업 실패')
@@ -1255,25 +1314,42 @@ function BackupRestoreSection() {
       const local: Record<string, unknown> = payload.localStorage || {}
 
       const keys = Object.keys(local)
+      makeRestoreRollback(keys)
       for (const key of keys) {
-        localStorage.setItem(key, typeof local[key] === 'string' ? local[key] as string : JSON.stringify(local[key]))
+        localStorage.setItem(key, serializeLocalStorageValue(local[key]))
       }
 
       // KG 복원 (서버가 /restore 엔드포인트 지원 시)
+      let kgRestored = false
       if (payload.kg) {
         try {
-          await fetch('http://127.0.0.1:8766/restore', {
+          const response = await fetch('http://127.0.0.1:8766/restore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload.kg),
             signal: AbortSignal.timeout(5000),
           })
-        } catch { /* KG 서버 없으면 무시 */ }
+          kgRestored = response.ok
+        } catch {
+          kgRestored = false
+        }
       }
 
-      setRestoreMsg(`복원 완료 — ${keys.length}개 키 복원됨. 페이지를 새로고침하세요.`)
+      setRestoreMsg(`복원 완료: ${keys.length}개 항목 적용${payload.kg ? (kgRestored ? ', KG 복원 완료' : ', KG 복원 실패/건너뜀') : ''}. 적용 전 상태는 dash-restore-rollback-* 키로 보관했습니다.`)
+      setRollbackKeys(listRestoreRollbackKeys())
     } catch {
       setRestoreMsg('복원 실패: 올바른 백업 JSON 파일인지 확인하세요.')
+    }
+  }
+
+  function handleRestoreLatestRollback() {
+    const latest = rollbackKeys[0]
+    if (!latest) return
+    try {
+      const count = restoreRollback(latest)
+      setRestoreMsg(`복원 전 상태로 되돌렸습니다: ${count}개 항목 적용. 페이지를 새로고침하세요.`)
+    } catch {
+      setRestoreMsg('되돌리기 실패: 저장된 rollback 데이터를 읽을 수 없습니다.')
     }
   }
 
@@ -1309,6 +1385,18 @@ function BackupRestoreSection() {
             className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200"
           />
         </label>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
+          복구 방법: 백업 JSON 파일을 선택하면 localStorage와 KG 데이터를 복원합니다. 복원 직전 상태는 자동 보관되며, 문제가 있으면 아래 되돌리기 버튼을 사용할 수 있습니다.
+        </div>
+        {rollbackKeys.length > 0 && (
+          <button
+            type="button"
+            onClick={handleRestoreLatestRollback}
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs rounded-lg"
+          >
+            최근 복원 전 상태로 되돌리기
+          </button>
+        )}
         {restoreMsg && (
           <p className={`text-xs ${restoreMsg.includes('실패') ? 'text-red-500' : 'text-green-600'}`}>
             {restoreMsg}

@@ -26,7 +26,7 @@ function getPidsOnPort(port) {
     })
     const pids = new Set()
     for (const line of out.split('\n')) {
-      if (!line.includes('LISTENING') && !line.includes('ESTABLISHED')) continue
+      if (!line.includes('LISTENING')) continue
       const pid = line.trim().split(/\s+/).pop()
       if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid)
     }
@@ -65,10 +65,8 @@ async function ensurePortFree(port) {
   console.warn(`[dev] failed to free port ${port}`)
 }
 
-console.log('[dev] checking Vite ports')
-for (let p = VITE_PORT; p <= VITE_PORT + 7; p++) {
-  await ensurePortFree(p)
-}
+console.log('[dev] checking Vite port')
+await ensurePortFree(VITE_PORT)
 console.log(`[dev] port ${VITE_PORT} ready`)
 
 if (isPortUsed(MCP_PORT)) {

@@ -6,7 +6,7 @@ import { useNotes } from '@/store/useNotes'
 import { useCalendar } from '@/store/useCalendar'
 import { useSettings } from '@/store/useSettings'
 import { usePolling } from '@/hooks/usePolling'
-import { saveSnapshot, hasSnapshotToday, todayStr } from '@/services/snapshot'
+import { saveSnapshot, todayStr } from '@/services/snapshot'
 import { logActivity } from '@/services/activityLog'
 import { claudeWebAutoConnect } from '@/services/claudeWeb'
 import type { View } from '@/types'
@@ -82,7 +82,7 @@ export default function App() {
 
   // 하루 첫 접속 시 스냅샷 자동 저장 (마운트 시점 값 사용이 의도적)
   useEffect(() => {
-    if (!hasSnapshotToday()) {
+    const timer = window.setTimeout(() => {
       saveSnapshot({
         todos: todos.todos,
         notes: notes.notes,
@@ -90,9 +90,9 @@ export default function App() {
         briefing: localStorage.getItem(`briefing-${todayStr()}`) || '',
         completedCount: todos.completedToday.length,
       })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [todos.todos, notes.notes, calendar.events, todos.completedToday.length])
 
   // 브리핑 생성 후 스냅샷 갱신 (briefing localStorage 변화 감지)
   useEffect(() => {
@@ -107,8 +107,21 @@ export default function App() {
         })
       }
     }
+    const onBriefingUpdated = (e: Event) => {
+      saveSnapshot({
+        todos: todos.todos,
+        notes: notes.notes,
+        calendarEvents: calendar.events,
+        briefing: (e as CustomEvent<string>).detail || localStorage.getItem(`briefing-${todayStr()}`) || '',
+        completedCount: todos.completedToday.length,
+      })
+    }
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    window.addEventListener('dashboard:briefing-updated', onBriefingUpdated)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('dashboard:briefing-updated', onBriefingUpdated)
+    }
   }, [todos.todos, notes.notes, calendar.events, todos.completedToday.length])
 
   return (

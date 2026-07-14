@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-cd /d "D:\MyWork\my-dashboard"
+cd /d "%~dp0"
 
 call "%~dp0start_mental_avatar_api.bat"
 

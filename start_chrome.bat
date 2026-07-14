@@ -1,4 +1,13 @@
 @echo off
-:: Claude.ai 자동 연결을 위한 Chrome 시작 스크립트
-:: 이 파일로 Chrome을 실행하면 대시보드가 세션 키를 자동으로 가져옵니다.
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+setlocal
+
+rem Start Chrome with a remote debugging port for the optional Claude browser bridge.
+set "CHROME_EXE=C:\Program Files\Google\Chrome\Application\chrome.exe"
+if not exist "%CHROME_EXE%" set "CHROME_EXE=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+
+if not exist "%CHROME_EXE%" (
+    echo Chrome executable not found.
+    exit /b 1
+)
+
+start "" "%CHROME_EXE%" --remote-debugging-port=9222 --load-extension="%~dp0chrome-extension" --no-first-run --no-default-browser-check https://claude.ai
