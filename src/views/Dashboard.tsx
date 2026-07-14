@@ -78,6 +78,143 @@ const SPLIT_CLASS: Record<Split, string> = {
   '2fr_1fr': 'grid-cols-[2fr_1fr]',
   'full':    'grid-cols-1',
 }
+
+type PanelIconName = 'summary' | 'pdf' | 'weather' | 'shortcuts' | 'stocks' | 'notes' | 'rss' | 'news' | 'routine' | 'calendar'
+
+const PANEL_ICON_META: Record<PanelIconName, { tone: string; stroke: string; paths: React.ReactNode }> = {
+  summary: {
+    tone: 'bg-slate-100 text-slate-700 ring-slate-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M5 6.5h14" />
+        <path d="M5 12h9" />
+        <path d="M5 17.5h11" />
+        <path d="M18 11l1.5 1.5L22 9" />
+      </>
+    ),
+  },
+  pdf: {
+    tone: 'bg-rose-50 text-rose-600 ring-rose-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" />
+        <path d="M14 3.5V8h4" />
+        <path d="M8.5 14h7" />
+        <path d="M8.5 17h4" />
+      </>
+    ),
+  },
+  weather: {
+    tone: 'bg-sky-50 text-sky-600 ring-sky-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M8.5 16.5h8.3a3.7 3.7 0 0 0 .4-7.4 5.6 5.6 0 0 0-10.7 1.4A3.1 3.1 0 0 0 8.5 16.5Z" />
+        <path d="M8 20h.01" />
+        <path d="M12 20h.01" />
+        <path d="M16 20h.01" />
+      </>
+    ),
+  },
+  shortcuts: {
+    tone: 'bg-violet-50 text-violet-600 ring-violet-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M10 13.5a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7l-1.1 1.1" />
+        <path d="M14 10.5a4 4 0 0 0-5.7 0L6 12.8a4 4 0 0 0 5.7 5.7l1.1-1.1" />
+        <path d="M8 4.5v3" />
+        <path d="M6.5 6h3" />
+      </>
+    ),
+  },
+  stocks: {
+    tone: 'bg-emerald-50 text-emerald-600 ring-emerald-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M4 19h16" />
+        <path d="M7 16v-4" />
+        <path d="M12 16V8" />
+        <path d="M17 16v-7" />
+        <path d="M6 9.5 11 5l4 3 4-4" />
+      </>
+    ),
+  },
+  notes: {
+    tone: 'bg-amber-50 text-amber-600 ring-amber-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M7 4h10a1 1 0 0 1 1 1v14l-3-2-3 2-3-2-3 2V5a1 1 0 0 1 1-1Z" />
+        <path d="M9 8h6" />
+        <path d="M9 11.5h6" />
+        <path d="M9 15h3" />
+      </>
+    ),
+  },
+  rss: {
+    tone: 'bg-orange-50 text-orange-600 ring-orange-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M5 5a14 14 0 0 1 14 14" />
+        <path d="M5 10a9 9 0 0 1 9 9" />
+        <path d="M6.5 18.5h.01" />
+      </>
+    ),
+  },
+  news: {
+    tone: 'bg-cyan-50 text-cyan-700 ring-cyan-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M5 5.5h11a2 2 0 0 1 2 2V19H7a2 2 0 0 1-2-2V5.5Z" />
+        <path d="M18 9h1a1 1 0 0 1 1 1v7a2 2 0 0 1-2 2" />
+        <path d="M8 9h6" />
+        <path d="M8 12.5h7" />
+        <path d="M8 16h4" />
+      </>
+    ),
+  },
+  routine: {
+    tone: 'bg-lime-50 text-lime-700 ring-lime-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M6 7.5 8 9.5 11.5 6" />
+        <path d="M6 14.5 8 16.5 11.5 13" />
+        <path d="M14 8h5" />
+        <path d="M14 15h5" />
+      </>
+    ),
+  },
+  calendar: {
+    tone: 'bg-indigo-50 text-indigo-600 ring-indigo-200',
+    stroke: 'currentColor',
+    paths: (
+      <>
+        <path d="M7 3.5v3" />
+        <path d="M17 3.5v3" />
+        <path d="M5 8h14" />
+        <path d="M6 5.5h12a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z" />
+        <path d="M8.5 11.5h.01" />
+        <path d="M12 11.5h.01" />
+        <path d="M15.5 11.5h.01" />
+      </>
+    ),
+  },
+}
+
+const PANEL_ICON_BY_ID: Record<PanelId, PanelIconName> = {
+  weather: 'weather',
+  shortcuts: 'shortcuts',
+  stocks: 'stocks',
+  rss: 'rss',
+  grid: 'summary',
+}
 const SPLIT_LABEL: Record<Split, string> = { '1fr_1fr': '1:1', '3fr_2fr': '3:2', '2fr_1fr': '2:1', 'full': '전체' }
 
 const STOCK_NAME_MAP: Record<string, string> = {
@@ -952,8 +1089,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
 
       {/* 다가오는 일정 — 5열 행 바로 아래 */}
       <div className="dashboard-card p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-900">다가오는 일정</h2>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <PanelIcon name="calendar" />
+            <h2 className="truncate text-sm font-semibold text-gray-900">다가오는 일정</h2>
+          </div>
           <button onClick={() => onNavigate('calendar')} className="text-xs text-gray-400 hover:text-gray-700">캘린더</button>
         </div>
         {upcoming.length === 0 ? (
@@ -973,7 +1113,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         )}
       </div>
 
-      <Panel title="PDF / 웹 요약">
+      <Panel title="PDF / 웹 요약" icon="pdf">
         <form onSubmit={handlePdfSubmit} className="flex gap-2">
           <input
             value={pdfUrl}
@@ -1057,7 +1197,11 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
           }
 
           return (
-            <div className="bg-surface border border-surface-border rounded-xl p-2 space-y-1">
+            <div className="bg-surface border border-surface-border rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2.5">
+                <PanelIcon name="weather" />
+                <span className="text-sm font-semibold text-gray-900">날씨</span>
+              </div>
               <div className="grid grid-cols-7 gap-0.5">{Array.from({length:7},(_,i)=>renderCell(i))}</div>
               <div className="border-t border-surface-border pt-1 grid grid-cols-7 gap-0.5">{Array.from({length:7},(_,i)=>renderCell(i+7))}</div>
             </div>
@@ -1079,7 +1223,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         )
         if (panelId === 'shortcuts') return (
         <SortablePanelWrapper key="shortcuts" id="shortcuts" label="바로가기" editMode={editMode}>
-      <Panel title="빠른 바로가기" className="!space-y-3">
+      <Panel title="빠른 바로가기" icon="shortcuts" className="!space-y-3">
         <form onSubmit={handleAddShortcut} className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_auto] gap-2 max-sm:grid-cols-[minmax(0,1fr)_auto]">
           <input
             value={shortcutUrl}
@@ -1144,6 +1288,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
       {/* 주식 패널 — 3열 그리드 */}
       <div className="bg-white border border-surface-border rounded-xl p-3 space-y-2">
         <div className="flex items-center gap-2">
+          <PanelIcon name="stocks" />
           <span className="text-xs font-semibold text-gray-700">주식</span>
           <span className="text-[11px] text-gray-400">
             {stocks.length > 0 && symbols.length > 0 && stocks.length < symbols.length
@@ -1218,7 +1363,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
                 pdfContextBlock(pdfSummary),
               )}
             />
-            <Panel title="최근 노트" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
+            <Panel title="최근 노트" icon="notes" actionLabel="전체 보기" onAction={() => onNavigate('notes')}>
               {notes.notes.length === 0 ? (
                 <p className="text-xs text-gray-400">작성한 노트가 없습니다.</p>
               ) : (
@@ -1245,6 +1390,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
             return (
               <Panel
                 title="RSS 피드"
+                icon="rss"
                 actionLabel={rssLoading ? '...' : '새로고침'}
                 onAction={() => {
                   const urls = (settings.rssFeeds || '').split('\n').map(u => u.trim()).filter(Boolean)
@@ -1300,7 +1446,7 @@ export default function Dashboard({ todos, notes, calendar, settings, onNavigate
         if (panelId === 'grid') return (
         <SortablePanelWrapper key="grid" id="grid" label="할 일/브리핑/일정/노트" editMode={editMode}>
       <div className="grid grid-cols-1 gap-4 items-stretch">
-        <Panel title="AI 뉴스">
+        <Panel title="AI 뉴스" icon="news">
           {/* 헤더: 탭 + 새로고침 */}
           <div className="flex items-center gap-1 -mt-8 mb-3 flex-wrap">
             <div className="flex gap-0.5 flex-1 flex-wrap">
@@ -1434,10 +1580,13 @@ function DailyRoutinePanel({
 
   return (
     <section className="dashboard-card flex flex-col space-y-3 p-4" style={{ maxHeight: '240px' }}>
-      <div className="flex items-center justify-between shrink-0">
-        <h2 className="font-semibold text-gray-900 text-sm">매일 하는 일</h2>
-        <button onClick={() => onNavigate('todos')} className="text-xs text-gray-400 hover:text-gray-700">
-          할 일 보기
+      <div className="flex shrink-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <PanelIcon name="routine" />
+          <h2 className="truncate font-semibold text-gray-900 text-sm">매일 하는 일</h2>
+        </div>
+        <button onClick={() => onNavigate('todos')} className="shrink-0 text-xs text-gray-400 hover:text-gray-700">
+          전체 보기
         </button>
       </div>
       <div className="overflow-y-auto flex-1 space-y-3">
@@ -1606,8 +1755,11 @@ function PdfMcpPanel({
 }) {
   return (
     <section className="dashboard-card space-y-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="font-semibold text-gray-900 text-sm">PDF / 웹 요약</h2>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <PanelIcon name="pdf" />
+          <h2 className="truncate font-semibold text-gray-900 text-sm">PDF / 웹 요약</h2>
+        </div>
         {summary && (
           <button
             type="button"
@@ -1793,21 +1945,47 @@ function DashboardAiPanel({
   )
 }
 
-function Panel({ title, children, className = '', actionLabel, onAction }: {
+function PanelIcon({ name, compact = false }: { name: PanelIconName; compact?: boolean }) {
+  const meta = PANEL_ICON_META[name]
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded-lg ring-1 ${meta.tone} ${compact ? 'h-6 w-6' : 'h-8 w-8'}`}
+      aria-hidden="true"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={meta.stroke}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={compact ? 'h-3.5 w-3.5' : 'h-[18px] w-[18px]'}
+      >
+        {meta.paths}
+      </svg>
+    </span>
+  )
+}
+
+function Panel({ title, children, className = '', actionLabel, onAction, icon }: {
   title: string
   children: React.ReactNode
   className?: string
   actionLabel?: string
   onAction?: () => void
+  icon?: PanelIconName
 }) {
   if (title.startsWith('PDF')) return null
 
   return (
     <section className={`dashboard-card space-y-3 p-4 ${className}`}>
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-gray-900 text-sm">{title}</h2>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {icon && <PanelIcon name={icon} />}
+          <h2 className="truncate font-semibold text-gray-900 text-sm">{title}</h2>
+        </div>
         {actionLabel && onAction && (
-          <button onClick={onAction} className="text-xs text-gray-400 hover:text-gray-700">
+          <button onClick={onAction} className="shrink-0 text-xs text-gray-400 hover:text-gray-700">
             {actionLabel}
           </button>
         )}
@@ -1818,7 +1996,7 @@ function Panel({ title, children, className = '', actionLabel, onAction }: {
 }
 
 function SortablePanelWrapper({ id, label, editMode, children }: {
-  id: string
+  id: PanelId
   label: string
   editMode: boolean
   children: React.ReactNode
@@ -1837,9 +2015,8 @@ function SortablePanelWrapper({ id, label, editMode, children }: {
           {...listeners}
           className="absolute -top-1 left-0 right-0 z-10 flex items-center justify-center gap-2 py-1 bg-blue-500 text-white text-xs rounded-t-lg cursor-grab active:cursor-grabbing"
         >
-          <span>⠿</span>
-          <span>{label}</span>
-          <span>⠿</span>
+          <PanelIcon name={PANEL_ICON_BY_ID[id]} compact />
+          <span className="font-medium">{label}</span>
         </div>
       )}
       <div className={editMode ? 'pt-6 ring-2 ring-blue-300 ring-offset-1 rounded-xl' : ''}>
