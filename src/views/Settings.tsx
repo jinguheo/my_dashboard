@@ -1270,7 +1270,7 @@ function BackupRestoreSection() {
       let kgStatus: 'included' | 'unavailable' | 'failed' = 'unavailable'
       const endpoint = 'http://127.0.0.1:8766'
       try {
-        const r = await fetch(`${endpoint}/backup`, { signal: AbortSignal.timeout(3000) })
+        const r = await fetch(`${endpoint}/backup`, { signal: AbortSignal.timeout(60000) })
         if (r.ok) {
           kg = await r.json()
           kgStatus = 'included'

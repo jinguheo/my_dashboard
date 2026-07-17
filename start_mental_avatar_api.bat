@@ -12,6 +12,8 @@ if defined MENTAL_AVATAR_PYTHON (
     set "AVATAR_PYTHON=%AVATAR_ROOT%\.venv\Scripts\python.exe"
 )
 
+if not exist "%AVATAR_PYTHON%" if exist "C:\Users\oem\miniconda3\envs\avatar\python.exe" set "AVATAR_PYTHON=C:\Users\oem\miniconda3\envs\avatar\python.exe"
+
 if not exist "%AVATAR_API%" (
     echo Mental Avatar API script not found: %AVATAR_API%
     endlocal & set "MENTAL_AVATAR_AVAILABLE=0" & exit /b 0
@@ -27,6 +29,6 @@ if exist "%AVATAR_PYTHON%" goto start_api
 set "AVATAR_PYTHON=python"
 
 :start_api
-start "Mental Avatar API" /min /d "%AVATAR_ROOT%" cmd /c ""%AVATAR_PYTHON%" "%AVATAR_API%" >> "%AVATAR_ROOT%\server_8766.log" 2>> "%AVATAR_ROOT%\server_8766_err.log""
+start "Mental Avatar API" /min /d "%AVATAR_ROOT%" "%AVATAR_PYTHON%" "%AVATAR_API%"
 echo Mental Avatar API started on 8766
 endlocal & set "MENTAL_AVATAR_AVAILABLE=1" & set "MENTAL_AVATAR_ROOT=%AVATAR_ROOT%" & set "MENTAL_AVATAR_PYTHON=%AVATAR_PYTHON%"

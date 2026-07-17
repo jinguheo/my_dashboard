@@ -2,19 +2,22 @@
 setlocal
 cd /d "%~dp0"
 
+rem Always perform a clean restart for dashboard-related services.
+rem This is intentionally limited to ports owned by this dashboard.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports=@(5173,5174,8765,8766,8768); foreach($port in $ports){ $portPids=netstat -ano | Select-String (':' + $port + ' .*LISTENING') | ForEach-Object { $_.ToString().Trim().Split()[-1] } | Sort-Object -Unique; foreach($procId in $portPids){ if($procId -and $procId -ne '0'){ Stop-Process -Id ([int]$procId) -Force -ErrorAction SilentlyContinue } } }; Start-Sleep -Milliseconds 800"
+
 rem Lightweight default: only start the dashboard essentials.
 rem Optional heavy services can be enabled before running this file:
 rem   set START_AVATAR_EXTRAS=1
 rem   set START_CLAUDE_BROWSER=1
+rem Keep restart responsive; avatar services can warm up on first use.
+if not defined SKIP_AVATAR_WARMUP set "SKIP_AVATAR_WARMUP=1"
 
 set "PYTHON_EXE=python"
 if exist ".venv\Scripts\python.exe" set "PYTHON_EXE=.venv\Scripts\python.exe"
 
-set "NPM_EXE=npm.cmd"
-where npm.cmd >nul 2>nul
-if errorlevel 1 (
-    if exist "C:\Program Files\nodejs\npm.cmd" set "NPM_EXE=C:\Program Files\nodejs\npm.cmd"
-)
+set "NPM_EXE=C:\Program Files\nodejs\npm.cmd"
+if not exist "%NPM_EXE%" set "NPM_EXE=npm.cmd"
 
 netstat -ano | findstr ":8765" | findstr "LISTENING" >nul
 if errorlevel 1 (
@@ -24,21 +27,27 @@ if errorlevel 1 (
     echo MCP already running
 )
 
+rem Wait for MCP to bind before starting scripts/dev.js, which also checks MCP.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ready=$false; for($i=0; $i -lt 20; $i++){ if(netstat -ano | Select-String ':8765 .*LISTENING'){ $ready=$true; break }; Start-Sleep -Milliseconds 500 }; if(-not $ready){ Write-Output 'MCP did not become ready before continuing' }"
+
 call "%~dp0start_mental_avatar_api.bat"
 set "AVATAR_AVAILABLE=%MENTAL_AVATAR_AVAILABLE%"
 
-rem Preload XTTS on every dashboard restart so the first TTS is ready sooner.
-if /I not "%AVATAR_AVAILABLE%"=="1" goto skip_avatar_warmup
+rem Preload XTTS on normal dashboard restarts so the first TTS is ready sooner.
+rem Login startup skips blocking warmups until all UI servers are available.
+if /I "%SKIP_AVATAR_WARMUP%"=="1" goto skip_avatar_preload
+if /I not "%AVATAR_AVAILABLE%"=="1" goto skip_avatar_preload
 powershell -NoProfile -WindowStyle Hidden -Command "$ready=$false; for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/health' -TimeoutSec 2; if ($r.StatusCode -eq 200) { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/avatar/xtts/ensure' -Method Post -TimeoutSec 20 | Out-Null; $ready=$true; break } } catch { Start-Sleep -Seconds 2 } }; if ($ready) { Write-Output 'XTTS warm-up triggered' } else { Write-Output 'XTTS warm-up skipped (API not ready)' }"
 
 rem Preload STT as well so first speech recognition starts faster.
 powershell -NoProfile -WindowStyle Hidden -Command "$ready=$false; for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/health' -TimeoutSec 2; if ($r.StatusCode -eq 200) { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8766/stt/warmup' -Method Post -TimeoutSec 120 | Out-Null; $ready=$true; break } } catch { Start-Sleep -Seconds 2 } }; if ($ready) { Write-Output 'STT warm-up triggered' } else { Write-Output 'STT warm-up skipped (API not ready)' }"
 
+:skip_avatar_preload
 netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
 if errorlevel 1 (
     if /I "%AVATAR_AVAILABLE%"=="1" (
         if exist "%MENTAL_AVATAR_ROOT%\frontend\package.json" (
-            start "Mental Avatar Vite" /min /d "%MENTAL_AVATAR_ROOT%\frontend" "%NPM_EXE%" run dev
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "$wd='%MENTAL_AVATAR_ROOT%\frontend'; Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' -ArgumentList 'node_modules/vite/bin/vite.js','--port','5174' -WorkingDirectory $wd -WindowStyle Hidden"
             echo Mental Avatar frontend started on 5174
         ) else (
             echo Mental Avatar frontend skipped: %MENTAL_AVATAR_ROOT%\frontend not found
@@ -110,8 +119,12 @@ echo Claude browser bridge skipped. Set START_CLAUDE_BROWSER=1 to enable.
 :after_claude_browser
 netstat -ano | findstr ":5173" | findstr "LISTENING" >nul
 if errorlevel 1 (
-    start "Dashboard Vite" /min /d "%~dp0" "%NPM_EXE%" run dev
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$wd='%~dp0'; Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' -ArgumentList 'scripts/dev.js' -WorkingDirectory $wd -WindowStyle Hidden"
     echo Dashboard Vite started on 5173
 ) else (
     echo Dashboard Vite already running
 )
+
+rem Warm up XTTS and STT after the API is available, without blocking the UI startup.
+start "Avatar Warmup" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\warmup_avatar_services.ps1"
+echo Avatar TTS/STT warmup started in background
