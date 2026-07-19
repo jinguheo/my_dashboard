@@ -13,6 +13,7 @@ if defined MENTAL_AVATAR_PYTHON (
 )
 
 if not exist "%AVATAR_PYTHON%" if exist "C:\Users\oem\miniconda3\envs\avatar\python.exe" set "AVATAR_PYTHON=C:\Users\oem\miniconda3\envs\avatar\python.exe"
+if /I "%AVATAR_PYTHON%"=="python" if exist "C:\Users\oem\miniconda3\envs\avatar\python.exe" set "AVATAR_PYTHON=C:\Users\oem\miniconda3\envs\avatar\python.exe"
 
 if not exist "%AVATAR_API%" (
     echo Mental Avatar API script not found: %AVATAR_API%

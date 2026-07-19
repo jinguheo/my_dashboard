@@ -47,7 +47,7 @@ netstat -ano | findstr ":5174" | findstr "LISTENING" >nul
 if errorlevel 1 (
     if /I "%AVATAR_AVAILABLE%"=="1" (
         if exist "%MENTAL_AVATAR_ROOT%\frontend\package.json" (
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "$wd='%MENTAL_AVATAR_ROOT%\frontend'; Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' -ArgumentList 'node_modules/vite/bin/vite.js','--port','5174' -WorkingDirectory $wd -WindowStyle Hidden"
+            start "Mental Avatar Frontend" /min /d "%MENTAL_AVATAR_ROOT%\frontend" "C:\Program Files\nodejs\node.exe" "node_modules\vite\bin\vite.js" --config "D:\MyWork\my-dashboard\mental-avatar-vite.config.mjs" --port 5174
             echo Mental Avatar frontend started on 5174
         ) else (
             echo Mental Avatar frontend skipped: %MENTAL_AVATAR_ROOT%\frontend not found
@@ -59,6 +59,22 @@ if errorlevel 1 (
     echo Mental Avatar frontend already running
 )
 :skip_avatar_warmup
+
+rem Real3D (mental-avatar와 무관한 별도 프로젝트: 사진->MICA 3D 얼굴 형상 재구성, D:\MyWork\Real3D).
+rem GPU 상주 로딩이라 기동에 10~20초 걸림 — 실패해도 대시보드 기동 자체는 막지 않음.
+if not defined REAL3D_ROOT set "REAL3D_ROOT=D:\MyWork\Real3D"
+if not defined REAL3D_PYTHON set "REAL3D_PYTHON=D:\condaenvs\mica\python.exe"
+netstat -ano | findstr ":8769" | findstr "LISTENING" >nul
+if errorlevel 1 (
+    if exist "%REAL3D_PYTHON%" if exist "%REAL3D_ROOT%\server.py" (
+        start "Real3D Server" /min /d "%REAL3D_ROOT%" "%REAL3D_PYTHON%" "%REAL3D_ROOT%\server.py"
+        echo Real3D server started on 8769
+    ) else (
+        echo Real3D server skipped: python or server.py not found
+    )
+) else (
+    echo Real3D server already running
+)
 
 if /I not "%START_AVATAR_EXTRAS%"=="1" goto skip_avatar
 
@@ -119,7 +135,7 @@ echo Claude browser bridge skipped. Set START_CLAUDE_BROWSER=1 to enable.
 :after_claude_browser
 netstat -ano | findstr ":5173" | findstr "LISTENING" >nul
 if errorlevel 1 (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$wd='%~dp0'; Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' -ArgumentList 'scripts/dev.js' -WorkingDirectory $wd -WindowStyle Hidden"
+    start "Dashboard Vite" /min /d "%~dp0" "C:\Program Files\nodejs\node.exe" "scripts\dev.js"
     echo Dashboard Vite started on 5173
 ) else (
     echo Dashboard Vite already running
